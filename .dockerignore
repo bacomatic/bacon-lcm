@@ -1,0 +1,7 @@
+target/
+docs/
+*.md
+.git/
+.gitignore
+docker/
+raw/
