@@ -53,3 +53,10 @@ export {
   EchoSummarizer,
   NaiveTokenCounter,
 } from "./defaults.js";
+
+// Hooks
+export type { HookEvent, HookResult } from "./hooks/index.js";
+export { handleHookEvent, resetSession } from "./hooks/index.js";
+export { parseWindsurfHook } from "./hooks/index.js";
+export { parseCopilotHook } from "./hooks/index.js";
+export type { CopilotHookType } from "./hooks/index.js";

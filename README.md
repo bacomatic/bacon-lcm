@@ -99,24 +99,105 @@ if (summaries.length > 0) {
 
 Replace `NaiveTokenCounter` with tiktoken or your model's tokenizer, and `EchoSummarizer` with an actual LLM call for production use.
 
+## Integration: MCP Server
+
+The MCP server exposes LCM as tools that any MCP-compatible agent can call.
+
+### Windsurf
+
+Add to `~/.codeium/windsurf/mcp_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "bacon-lcm": {
+      "command": "node",
+      "args": ["/path/to/bacon-lcm/dist/mcp-server.js"]
+    }
+  }
+}
+```
+
+### Devin
+
+Add the same MCP server via Devin's MCP Marketplace or config.
+
+### Copilot CLI / Any MCP Host
+
+Any agent that speaks MCP over stdio can connect to `dist/mcp-server.js`.
+
+### MCP Tools
+
+| Tool | Description |
+|------|-------------|
+| `lcm_store` | Persist a message; auto-compaction when thresholds exceeded |
+| `lcm_recall` | Retrieve active context window (summaries + fresh tail) |
+| `lcm_describe` | Inspect a summary node's lineage metadata |
+| `lcm_expand` | Expand a summary to original verbatim messages |
+| `lcm_session_new` | Create a new LCM session |
+| `lcm_session_info` | Get current session statistics |
+
+## Integration: Hooks (Passive Capture)
+
+Hooks silently capture every prompt and response into the LCM store, without the agent needing to call tools. Build first: `npm run build`.
+
+### Windsurf Cascade Hooks
+
+Copy or symlink `.windsurf/hooks.json` (included in repo) to your project. It captures:
+- `pre_user_prompt` — every user message
+- `post_cascade_response` — every assistant response
+- `post_cascade_response_with_transcript` — full session transcripts
+
+### GitHub Copilot CLI Hooks
+
+Copy `.github/hooks/lcm.json` to your repo's `.github/hooks/` directory. It captures:
+- `sessionStart` / `sessionEnd` — session lifecycle
+- `userPromptSubmitted` — every user prompt
+- `preToolUse` / `postToolUse` — tool invocations
+
+### Hook CLI
+
+Both hook configs call the same unified CLI:
+
+```bash
+# Windsurf (auto-detects platform from JSON shape)
+echo '{"agent_action_name":"pre_user_prompt","tool_info":{"user_prompt":"hello"}}' | node dist/hooks/cli.js
+
+# Copilot CLI (requires --hook flag)
+echo '{"timestamp":123,"cwd":".","prompt":"hello"}' | node dist/hooks/cli.js --platform copilot --hook userPromptSubmitted
+```
+
 ## Project Structure
 
 ```
 src/
-  types.ts        Core type definitions
-  ids.ts          Type-safe ID factories
-  store.ts        Immutable message store
-  dag.ts          Summary DAG with lineage traversal
-  compaction.ts   Three-level compaction engine
-  context.ts      Active context window assembler
-  retrieval.ts    lcm_describe / lcm_expand tools
-  session.ts      Top-level session orchestrator
-  defaults.ts     Default implementations & config presets
-  index.ts        Public API barrel export
-  lcm.test.ts     Test suite
+  types.ts          Core type definitions
+  ids.ts            Type-safe ID factories
+  store.ts          Immutable message store
+  dag.ts            Summary DAG with lineage traversal
+  compaction.ts     Three-level compaction engine
+  context.ts        Active context window assembler
+  retrieval.ts      lcm_describe / lcm_expand tools
+  session.ts        Top-level session orchestrator
+  defaults.ts       Default implementations & config presets
+  mcp-server.ts     MCP server (stdio transport)
+  index.ts          Public API barrel export
+  lcm.test.ts       Core test suite
+  hooks/
+    handler.ts      Unified hook handler (platform-agnostic)
+    windsurf.ts     Windsurf Cascade hooks adapter
+    copilot.ts      Copilot CLI hooks adapter
+    cli.ts          CLI entry point for hook scripts
+    index.ts        Hooks barrel export
+    hooks.test.ts   Hook test suite
+.windsurf/
+  hooks.json        Windsurf hooks config (ready to use)
+.github/
+  hooks/
+    lcm.json        Copilot CLI hooks config (ready to use)
 raw/
-  LCM.pdf         The original LCM paper
-  volt-gh.md      Link to Volt source
+  LCM.pdf           The original LCM paper
+  volt-gh.md        Link to Volt source
 ```
 
 ## References

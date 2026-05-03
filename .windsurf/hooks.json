@@ -1,0 +1,22 @@
+{
+  "hooks": {
+    "pre_user_prompt": [
+      {
+        "command": "node ./dist/hooks/cli.js --platform windsurf",
+        "show_output": false
+      }
+    ],
+    "post_cascade_response": [
+      {
+        "command": "node ./dist/hooks/cli.js --platform windsurf",
+        "show_output": false
+      }
+    ],
+    "post_cascade_response_with_transcript": [
+      {
+        "command": "node ./dist/hooks/cli.js --platform windsurf",
+        "show_output": false
+      }
+    ]
+  }
+}
