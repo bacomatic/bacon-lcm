@@ -1,6 +1,4 @@
 // daemon/src/http.rs
-use std::sync::Arc;
-
 use axum::{
     Router,
     extract::State,
