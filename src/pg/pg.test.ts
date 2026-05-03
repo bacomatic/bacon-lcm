@@ -13,9 +13,10 @@ import pg from "pg";
 import { PgMessageStore } from "./pg-store.js";
 import { PgSummaryDag } from "./pg-dag.js";
 import { PgSessionStore } from "./pg-session.js";
+import { PgVectorStore } from "./pg-vectors.js";
 import { NaiveTokenCounter } from "../defaults.js";
 import { newSessionId } from "../ids.js";
-import type { MessageId, SessionId, SummaryId } from "../types.js";
+import type { Embedder, MessageId, SessionId, SummaryId } from "../types.js";
 
 const DATABASE_URL =
   process.env.DATABASE_URL ?? "postgres://localhost:5432/bacon_lcm_test";
@@ -49,7 +50,7 @@ describe.skipIf(!hasDb)("PostgreSQL persistence", () => {
   beforeAll(async () => {
     pool = new pg.Pool({ connectionString: DATABASE_URL });
     await pool.query(`CREATE SCHEMA IF NOT EXISTS ${schemaName}`);
-    await pool.query(`SET search_path TO ${schemaName}`);
+    await pool.query(`SET search_path TO ${schemaName}, public`);
 
     store = new PgMessageStore(pool, tokenCounter);
     dag = new PgSummaryDag(pool, tokenCounter);
@@ -227,6 +228,68 @@ describe.skipIf(!hasDb)("PostgreSQL persistence", () => {
       await sessionStore.delete(sessionId);
       const loaded = await sessionStore.load(sessionId);
       expect(loaded).toBeUndefined();
+    });
+  });
+
+  // -- PgVectorStore -----------------------------------------------------------
+
+  describe("PgVectorStore", () => {
+    // Deterministic fake embedder: embeds text as a 3-dimensional vector based on char codes
+    const fakeEmbedder: Embedder = {
+      dimensions: 3,
+      async embed(text: string): Promise<number[]> {
+        const c = text.charCodeAt(0) || 0;
+        return [c / 255, (c * 2) / 255, (c * 3) / 255];
+      },
+      async embedBatch(texts: string[]): Promise<number[][]> {
+        return Promise.all(texts.map((t) => this.embed(t)));
+      },
+    };
+
+    let vectorStore: PgVectorStore;
+    const sid = newSessionId();
+
+    it("migrates the vector table", async () => {
+      vectorStore = new PgVectorStore(pool, fakeEmbedder);
+      await vectorStore.migrate();
+      // If no error, migration succeeded
+    });
+
+    it("stores an embedding", async () => {
+      await vectorStore.store("emb-1", sid, "message", "msg-100", "Hello world");
+      const count = await vectorStore.size();
+      expect(count).toBeGreaterThanOrEqual(1);
+    });
+
+    it("stores another embedding", async () => {
+      await vectorStore.store("emb-2", sid, "message", "msg-101", "Goodbye world");
+      const count = await vectorStore.size();
+      expect(count).toBeGreaterThanOrEqual(2);
+    });
+
+    it("upserts on duplicate source", async () => {
+      await vectorStore.store("emb-1-v2", sid, "message", "msg-100", "Updated hello");
+      const count = await vectorStore.size();
+      // Should still be 2 due to UPSERT on (source_type, source_id)
+      expect(count).toBe(2);
+    });
+
+    it("searches by similarity", async () => {
+      const results = await vectorStore.search("Hello", { sessionId: sid, limit: 5 });
+      expect(results.length).toBeGreaterThan(0);
+      expect(results[0].similarity).toBeGreaterThan(0);
+      expect(results[0].sourceType).toBe("message");
+    });
+
+    it("filters by source type", async () => {
+      await vectorStore.store("emb-3", sid, "summary", "sum-1", "Summary of conversation");
+      const results = await vectorStore.search("Summary", { sessionId: sid, sourceType: "summary" });
+      expect(results.every((r) => r.sourceType === "summary")).toBe(true);
+    });
+
+    it("respects limit", async () => {
+      const results = await vectorStore.search("text", { limit: 1 });
+      expect(results.length).toBeLessThanOrEqual(1);
     });
   });
 });

@@ -23,6 +23,11 @@
     "condensedTargetTokens": 16000,
     "freshTailCount": 10
   },
+  "embedder": {
+    "provider": "openai",
+    "model": "text-embedding-3-small",
+    "dimensions": 1536
+  },
   "databaseUrl": "postgres://localhost:5432/bacon_lcm",
   "dashboard": {
     "enabled": false,

@@ -94,6 +94,7 @@ if (summaries.length > 0) {
 |----------------|----------------------------------|----------------------------|
 | `TokenCounter` | Estimate token count for a text  | Auto-selected by provider  |
 | `Summarizer`   | LLM call to produce summaries    | `EchoSummarizer` (testing) |
+| `Embedder`     | Generate embedding vectors       | `NullEmbedder` (disabled)  |
 | `MessageStore` | Persistence for raw messages     | `InMemoryMessageStore`     |
 | `SummaryDag`   | Persistence for the summary DAG  | `InMemorySummaryDag`       |
 
@@ -103,6 +104,16 @@ Token counters are auto-selected based on the summarizer provider:
 - **Echo/other** → `NaiveTokenCounter` (~4 chars/token)
 
 Override with the `tokenizer` config section or `LCM_TOKENIZER` env var.
+
+### Embedders (Semantic Search)
+
+When an embedder is configured with `DATABASE_URL` + pgvector, messages are auto-embedded on `addMessage()` and searchable via `session.search()`:
+
+- **OpenAI** → `OpenAIEmbedder` (text-embedding-3-small/large, works with Azure, Ollama, vLLM)
+- **Local** → `LocalEmbedder` (Xenova/all-MiniLM-L6-v2 via `@huggingface/transformers`, no API key)
+- **None** → `NullEmbedder` (semantic search disabled)
+
+The API key and base URL are inherited from the summarizer config when not set.
 
 ## Configuration
 
@@ -153,6 +164,10 @@ See `bacon-lcm.config.example.json` for a complete template.
 | `LCM_FRESH_TAIL_COUNT` | Override fresh tail message count |
 | `LCM_TOKENIZER` | `auto`, `tiktoken`, `anthropic`, or `naive` |
 | `LCM_TOKENIZER_MODEL` | Model for tiktoken encoding (e.g. `gpt-4o`) |
+| `LCM_EMBEDDER_PROVIDER` | `openai`, `local`, or `none` |
+| `LCM_EMBEDDER_MODEL` | Embedding model (e.g. `text-embedding-3-small`) |
+| `LCM_EMBEDDER_BASE_URL` | Embedding endpoint URL |
+| `LCM_EMBEDDER_DIMENSIONS` | Override embedding vector dimensions |
 
 ### Summarizer providers
 
@@ -400,6 +415,10 @@ src/
     tiktoken.ts     Accurate BPE counting via js-tiktoken (OpenAI models)
     anthropic.ts    Calibrated heuristic (~3.4 c/t) for Claude models
     index.ts        Token counter factory + auto-selection
+  embedders/
+    openai.ts       OpenAI-compatible embeddings (text-embedding-3-small/large)
+    local.ts        Local embeddings via @huggingface/transformers
+    index.ts        Embedder factory + NullEmbedder
   hooks/
     handler.ts      Unified hook handler (platform-agnostic)
     windsurf.ts     Windsurf Cascade hooks adapter
@@ -416,10 +435,12 @@ src/
     pg-store.ts     PostgreSQL message store
     pg-dag.ts       PostgreSQL summary DAG
     pg-session.ts   PostgreSQL session persistence (save/restore/list)
+    pg-vectors.ts   pgvector store for semantic search
     index.ts        Pg barrel export
     pg.test.ts      Postgres integration tests
 sql/
-  001_init.sql      Database migration
+  001_init.sql      Database migration (messages, summaries, sessions)
+  002_embeddings.sql  Embeddings table + pgvector indexes
 .windsurf/
   hooks.json        Windsurf hooks config (ready to use)
 .github/

@@ -44,7 +44,7 @@ export type { DescribeResult } from "./retrieval.js";
 export { RetrievalService } from "./retrieval.js";
 
 // Session manager
-export type { LcmSessionOptions, SessionPersistence } from "./session.js";
+export type { LcmSessionOptions, SessionPersistence, VectorStore } from "./session.js";
 export { LcmSession } from "./session.js";
 
 // PostgreSQL persistence
@@ -52,6 +52,8 @@ export { PgMessageStore } from "./pg/index.js";
 export { PgSummaryDag } from "./pg/index.js";
 export { PgSessionStore } from "./pg/index.js";
 export type { SessionRow } from "./pg/index.js";
+export { PgVectorStore } from "./pg/index.js";
+export type { EmbeddingRow, SearchResult } from "./pg/index.js";
 
 // Defaults
 export {
@@ -63,10 +65,13 @@ export {
 
 // Config
 export { loadConfig, resetConfig, getCompactionConfig, getSummarizerConfig } from "./config.js";
-export type { LcmConfig, SummarizerConfig, TokenizerConfig } from "./config.js";
+export type { LcmConfig, SummarizerConfig, TokenizerConfig, EmbedderConfig } from "./config.js";
 
 // Summarizers
 export { createSummarizer, OpenAISummarizer, AnthropicSummarizer } from "./summarizers/index.js";
+
+// Embedders
+export { createEmbedder, OpenAIEmbedder, LocalEmbedder, NullEmbedder } from "./embedders/index.js";
 
 // Tokenizers
 export { createTokenCounter, TiktokenCounter, AnthropicTokenCounter } from "./tokenizers/index.js";

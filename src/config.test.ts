@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { loadConfig, resetConfig } from "./config.js";
 import { createSummarizer, OpenAISummarizer, AnthropicSummarizer } from "./summarizers/index.js";
 import { createTokenCounter, TiktokenCounter, AnthropicTokenCounter } from "./tokenizers/index.js";
+import { createEmbedder, OpenAIEmbedder, LocalEmbedder, NullEmbedder } from "./embedders/index.js";
 import { EchoSummarizer, NaiveTokenCounter } from "./defaults.js";
 
 describe("loadConfig", () => {
@@ -26,6 +27,10 @@ describe("loadConfig", () => {
     delete process.env.LCM_FRESH_TAIL_COUNT;
     delete process.env.LCM_TOKENIZER;
     delete process.env.LCM_TOKENIZER_MODEL;
+    delete process.env.LCM_EMBEDDER_PROVIDER;
+    delete process.env.LCM_EMBEDDER_MODEL;
+    delete process.env.LCM_EMBEDDER_BASE_URL;
+    delete process.env.LCM_EMBEDDER_DIMENSIONS;
   });
 
   it("returns defaults when no config file or env vars", () => {
@@ -113,6 +118,25 @@ describe("loadConfig", () => {
     expect(cfg.compaction.thresholds.softLimit).toBe(100000);
     expect(cfg.compaction.thresholds.hardLimit).toBe(150000);
     expect(cfg.compaction.freshTailCount).toBe(20);
+  });
+
+  it("applies LCM_EMBEDDER_PROVIDER env override", () => {
+    process.env.LCM_EMBEDDER_PROVIDER = "openai";
+    const cfg = loadConfig();
+    expect(cfg.embedder?.provider).toBe("openai");
+  });
+
+  it("applies LCM_EMBEDDER_MODEL env override", () => {
+    process.env.LCM_EMBEDDER_MODEL = "text-embedding-3-large";
+    const cfg = loadConfig();
+    expect(cfg.embedder?.provider).toBe("openai");
+    expect(cfg.embedder?.model).toBe("text-embedding-3-large");
+  });
+
+  it("applies LCM_EMBEDDER_DIMENSIONS env override", () => {
+    process.env.LCM_EMBEDDER_DIMENSIONS = "256";
+    const cfg = loadConfig();
+    expect(cfg.embedder?.dimensions).toBe(256);
   });
 
   it("applies LCM_TOKENIZER env override", () => {
@@ -356,5 +380,119 @@ describe("AnthropicTokenCounter", () => {
     const text = "This is a sample sentence for comparison.";
     // AnthropicTokenCounter (~3.4 c/t) should give higher count than NaiveTokenCounter (~4 c/t)
     expect(anthropic.count(text)).toBeGreaterThan(naive.count(text));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Embedders
+// ---------------------------------------------------------------------------
+
+describe("createEmbedder", () => {
+  it("returns NullEmbedder when no embedder config", () => {
+    const e = createEmbedder({
+      summarizer: { provider: "echo" },
+      compaction: {} as any,
+    });
+    expect(e).toBeInstanceOf(NullEmbedder);
+    expect(e.dimensions).toBe(0);
+  });
+
+  it("returns NullEmbedder for provider 'none'", () => {
+    const e = createEmbedder({
+      summarizer: { provider: "echo" },
+      embedder: { provider: "none" },
+      compaction: {} as any,
+    });
+    expect(e).toBeInstanceOf(NullEmbedder);
+  });
+
+  it("returns OpenAIEmbedder for provider 'openai'", () => {
+    const e = createEmbedder({
+      summarizer: { provider: "echo" },
+      embedder: { provider: "openai", model: "text-embedding-3-small" },
+      compaction: {} as any,
+    });
+    expect(e).toBeInstanceOf(OpenAIEmbedder);
+    expect(e.dimensions).toBe(1536);
+  });
+
+  it("returns LocalEmbedder for provider 'local'", () => {
+    const e = createEmbedder({
+      summarizer: { provider: "echo" },
+      embedder: { provider: "local" },
+      compaction: {} as any,
+    });
+    expect(e).toBeInstanceOf(LocalEmbedder);
+    expect(e.dimensions).toBe(384);
+  });
+
+  it("inherits API key from summarizer config", () => {
+    const e = createEmbedder({
+      summarizer: { provider: "openai", apiKey: "sk-inherited" },
+      embedder: { provider: "openai" },
+      compaction: {} as any,
+    });
+    expect(e).toBeInstanceOf(OpenAIEmbedder);
+  });
+
+  it("respects custom dimensions", () => {
+    const e = createEmbedder({
+      summarizer: { provider: "echo" },
+      embedder: { provider: "openai", dimensions: 256 },
+      compaction: {} as any,
+    });
+    expect(e.dimensions).toBe(256);
+  });
+});
+
+describe("NullEmbedder", () => {
+  it("returns empty arrays", async () => {
+    const e = new NullEmbedder();
+    expect(await e.embed("test")).toEqual([]);
+    expect(await e.embedBatch(["a", "b"])).toEqual([[], []]);
+  });
+});
+
+describe("OpenAIEmbedder", () => {
+  it("calls the API and parses the response", async () => {
+    const mockResponse = {
+      data: [
+        { index: 0, embedding: [0.1, 0.2, 0.3] },
+        { index: 1, embedding: [0.4, 0.5, 0.6] },
+      ],
+    };
+
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(JSON.stringify(mockResponse), { status: 200 }),
+    );
+
+    const e = new OpenAIEmbedder({
+      provider: "openai",
+      apiKey: "sk-test",
+      baseUrl: "https://api.example.com/v1",
+      model: "text-embedding-3-small",
+    });
+
+    const results = await e.embedBatch(["Hello", "World"]);
+    expect(results).toHaveLength(2);
+    expect(results[0]).toEqual([0.1, 0.2, 0.3]);
+    expect(results[1]).toEqual([0.4, 0.5, 0.6]);
+
+    const [url, opts] = fetchSpy.mock.calls[0];
+    expect(url).toBe("https://api.example.com/v1/embeddings");
+    expect((opts?.headers as Record<string, string>)["Authorization"]).toBe("Bearer sk-test");
+
+    fetchSpy.mockRestore();
+  });
+
+  it("throws on API error", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response("Rate limited", { status: 429 }),
+    );
+
+    const e = new OpenAIEmbedder({ provider: "openai" });
+    await expect(e.embedBatch(["text"])).rejects.toThrow("429");
+
+    fetchSpy.mockRestore();
   });
 });

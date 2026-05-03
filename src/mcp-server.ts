@@ -10,6 +10,7 @@
  *   lcm_recall         — retrieve the current active context window
  *   lcm_describe       — inspect a summary node's lineage metadata
  *   lcm_expand         — expand a summary back to original messages
+ *   lcm_search         — semantic similarity search over messages/summaries
  *   lcm_session_new    — start a new LCM session
  *   lcm_session_list   — list all persisted sessions
  *   lcm_session_resume — resume a previously persisted session
@@ -23,13 +24,15 @@ import { createTokenCounter } from "./tokenizers/index.js";
 import { PgMessageStore } from "./pg/pg-store.js";
 import { PgSummaryDag } from "./pg/pg-dag.js";
 import { PgSessionStore } from "./pg/pg-session.js";
+import { PgVectorStore } from "./pg/pg-vectors.js";
 import { LcmSession } from "./session.js";
-import type { SessionPersistence } from "./session.js";
+import type { SessionPersistence, VectorStore } from "./session.js";
 import type { MessageStore } from "./store.js";
 import type { SummaryDag } from "./dag.js";
 import type { SessionId, SummaryId } from "./types.js";
 import { loadConfig, type LcmConfig } from "./config.js";
 import { createSummarizer } from "./summarizers/index.js";
+import { createEmbedder, NullEmbedder } from "./embedders/index.js";
 import { registry } from "./dashboard/registry.js";
 import { startDashboard } from "./dashboard/server.js";
 
@@ -44,6 +47,7 @@ let pool: pg.Pool | null = null;
 let sharedStore: MessageStore | undefined;
 let sharedDag: SummaryDag | undefined;
 let sharedSessionStore: SessionPersistence | undefined;
+let sharedVectorStore: VectorStore | undefined;
 
 async function init(): Promise<void> {
   config = loadConfig();
@@ -69,6 +73,20 @@ async function init(): Promise<void> {
     sharedStore = pgStore;
     sharedDag = pgDag;
     sharedSessionStore = new PgSessionStore(pool);
+
+    // Vector store for semantic search
+    const embedder = createEmbedder(config);
+    if (!(embedder instanceof NullEmbedder)) {
+      const pgVectors = new PgVectorStore(pool, embedder);
+      await pgVectors.migrate();
+      sharedVectorStore = pgVectors;
+      console.error(
+        `bacon-lcm MCP: embedder=${config.embedder?.provider}` +
+          (config.embedder?.model ? ` model=${config.embedder.model}` : "") +
+          ` (${embedder.dimensions}d)`,
+      );
+    }
+
     console.error(`bacon-lcm MCP: using Postgres (sessions persisted)`);
   } else {
     console.error("bacon-lcm MCP: using in-memory storage (set DATABASE_URL for persistence)");
@@ -97,7 +115,7 @@ function createNewSession(): LcmSession {
     tokenCounter,
     summarizer,
     config.compaction,
-    { store: sharedStore, dag: sharedDag, sessionStore: sharedSessionStore },
+    { store: sharedStore, dag: sharedDag, sessionStore: sharedSessionStore, vectorStore: sharedVectorStore },
   );
   activeSessionId = session.session.id;
   sessions.set(activeSessionId, session);
@@ -272,6 +290,61 @@ server.tool(
   },
 );
 
+// -- lcm_search --------------------------------------------------------------
+
+server.tool(
+  "lcm_search",
+  "Semantic search over messages and summaries. Requires DATABASE_URL and an embedder configured.",
+  {
+    query: z.string().describe("Natural language search query"),
+    limit: z.number().optional().describe("Max results (default 10)"),
+    source_type: z.enum(["message", "summary"]).optional().describe("Filter by source type"),
+    session_id: z.string().optional().describe("Session ID (uses active session if omitted)"),
+  },
+  async ({ query, limit, source_type, session_id }) => {
+    const session = session_id && sessions.has(session_id)
+      ? sessions.get(session_id)!
+      : getActiveSession();
+
+    const results = await session.search(query, {
+      limit: limit ?? 10,
+      sourceType: source_type,
+    });
+
+    if (results.length === 0) {
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: JSON.stringify({
+              error: results.length === 0 && !sharedVectorStore
+                ? "Semantic search not configured (set DATABASE_URL + embedder config)"
+                : "No results found",
+            }),
+          },
+        ],
+      };
+    }
+
+    return {
+      content: [
+        {
+          type: "text" as const,
+          text: JSON.stringify({
+            count: results.length,
+            results: results.map((r) => ({
+              source_type: r.sourceType,
+              source_id: r.sourceId,
+              content: r.content,
+              similarity: Math.round(r.similarity * 1000) / 1000,
+            })),
+          }),
+        },
+      ],
+    };
+  },
+);
+
 // -- lcm_session_new ---------------------------------------------------------
 
 server.tool(
@@ -383,7 +456,7 @@ server.tool(
       tokenCounter,
       summarizer,
       config.compaction,
-      { store: sharedStore, dag: sharedDag, sessionStore: sharedSessionStore },
+      { store: sharedStore, dag: sharedDag, sessionStore: sharedSessionStore, vectorStore: sharedVectorStore },
     );
 
     if (!restored) {

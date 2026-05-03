@@ -30,6 +30,19 @@ export interface TokenizerConfig {
   encoding?: string;
 }
 
+export interface EmbedderConfig {
+  /** Provider: "openai" | "local" | "none" */
+  provider: "openai" | "local" | "none";
+  /** Model name (e.g. "text-embedding-3-small", "Xenova/all-MiniLM-L6-v2") */
+  model?: string;
+  /** API key for OpenAI-compatible embedding endpoint */
+  apiKey?: string;
+  /** Base URL for OpenAI-compatible embedding endpoint */
+  baseUrl?: string;
+  /** Embedding vector dimensions (default depends on model) */
+  dimensions?: number;
+}
+
 export interface SummarizerConfig {
   /** Provider: "openai" | "anthropic" | "echo" */
   provider: "openai" | "anthropic" | "echo";
@@ -56,6 +69,8 @@ export interface LcmConfig {
   compaction: CompactionConfig;
   /** PostgreSQL connection string */
   databaseUrl?: string;
+  /** Embedder configuration for semantic search */
+  embedder?: EmbedderConfig;
   /** Dashboard settings */
   dashboard?: {
     enabled?: boolean;
@@ -167,6 +182,35 @@ function applyEnvOverrides(config: LcmConfig): void {
       ...config.dashboard,
       enabled: true,
       port: parseInt(process.env.DASHBOARD_PORT, 10),
+    };
+  }
+
+  // Embedder
+  if (process.env.LCM_EMBEDDER_PROVIDER) {
+    config.embedder = {
+      ...config.embedder,
+      provider: process.env.LCM_EMBEDDER_PROVIDER as EmbedderConfig["provider"],
+    };
+  }
+  if (process.env.LCM_EMBEDDER_MODEL) {
+    config.embedder = {
+      ...config.embedder,
+      provider: config.embedder?.provider ?? "openai",
+      model: process.env.LCM_EMBEDDER_MODEL,
+    };
+  }
+  if (process.env.LCM_EMBEDDER_BASE_URL) {
+    config.embedder = {
+      ...config.embedder,
+      provider: config.embedder?.provider ?? "openai",
+      baseUrl: process.env.LCM_EMBEDDER_BASE_URL,
+    };
+  }
+  if (process.env.LCM_EMBEDDER_DIMENSIONS) {
+    config.embedder = {
+      ...config.embedder,
+      provider: config.embedder?.provider ?? "openai",
+      dimensions: parseInt(process.env.LCM_EMBEDDER_DIMENSIONS, 10),
     };
   }
 

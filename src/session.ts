@@ -31,6 +31,17 @@ export interface LcmSessionOptions {
   dag?: SummaryDag;
   /** If provided, session metadata is persisted on every addMessage(). */
   sessionStore?: SessionPersistence;
+  /** If provided, messages are auto-embedded for semantic search. */
+  vectorStore?: VectorStore;
+}
+
+/**
+ * Minimal interface for vector storage (semantic search).
+ * Implemented by PgVectorStore — keeps LcmSession decoupled from pg.
+ */
+export interface VectorStore {
+  store(id: string, sessionId: SessionId, sourceType: "message" | "summary", sourceId: string, content: string): Promise<void>;
+  search(query: string, opts?: { sessionId?: SessionId; sourceType?: "message" | "summary"; limit?: number }): Promise<Array<{ sourceType: string; sourceId: string; content: string; similarity: number }>>;
 }
 
 /**
@@ -51,6 +62,7 @@ export class LcmSession {
   readonly context: ContextAssembler;
   readonly retrieval: RetrievalService;
   private readonly sessionStore?: SessionPersistence;
+  private readonly vectorStore?: VectorStore;
 
   constructor(
     private readonly tokenCounter: TokenCounter,
@@ -71,6 +83,7 @@ export class LcmSession {
     };
 
     this.sessionStore = options.sessionStore;
+    this.vectorStore = options.vectorStore;
     this.store = options.store ?? new InMemoryMessageStore(tokenCounter);
     this.dag = options.dag ?? new InMemorySummaryDag(tokenCounter);
     this.compaction = new CompactionEngine(
@@ -110,7 +123,7 @@ export class LcmSession {
     tokenCounter: TokenCounter,
     summarizer: Summarizer,
     config: CompactionConfig,
-    opts: Required<Pick<LcmSessionOptions, "store" | "dag" | "sessionStore">>,
+    opts: Required<Pick<LcmSessionOptions, "store" | "dag" | "sessionStore">> & Pick<LcmSessionOptions, "vectorStore">,
   ): Promise<LcmSession | undefined> {
     const row = await opts.sessionStore.load(sessionId);
     if (!row) return undefined;
@@ -120,6 +133,7 @@ export class LcmSession {
       store: opts.store,
       dag: opts.dag,
       sessionStore: opts.sessionStore,
+      vectorStore: opts.vectorStore,
     });
 
     // Restore metadata from the persisted row
@@ -177,6 +191,13 @@ export class LcmSession {
       compacted = true;
     }
 
+    // Auto-embed the message for semantic search
+    if (this.vectorStore) {
+      this.vectorStore
+        .store(message.id, this.session.id, "message", message.id, content)
+        .catch(() => {}); // fire-and-forget
+    }
+
     // Auto-save session metadata if a session store is configured
     if (this.sessionStore) {
       await this.save();
@@ -211,5 +232,24 @@ export class LcmSession {
   /** Expand a summary back to its original messages. */
   async expand(summaryId: SummaryId) {
     return this.retrieval.expand(summaryId);
+  }
+
+  // -----------------------------------------------------------------------
+  // Semantic search
+  // -----------------------------------------------------------------------
+
+  /**
+   * Search messages and summaries by semantic similarity.
+   * Returns empty array if no vectorStore is configured.
+   */
+  async search(
+    query: string,
+    opts?: { limit?: number; sourceType?: "message" | "summary" },
+  ): Promise<Array<{ sourceType: string; sourceId: string; content: string; similarity: number }>> {
+    if (!this.vectorStore) return [];
+    return this.vectorStore.search(query, {
+      sessionId: this.session.id,
+      ...opts,
+    });
   }
 }

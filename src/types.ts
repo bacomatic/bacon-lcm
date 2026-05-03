@@ -157,6 +157,23 @@ export interface Summarizer {
 }
 
 // ---------------------------------------------------------------------------
+// Embedder interface (pluggable)
+// ---------------------------------------------------------------------------
+
+/**
+ * Abstraction over embedding generation for semantic search.
+ * Consumers provide an implementation backed by OpenAI, a local model, etc.
+ */
+export interface Embedder {
+  /** Generate an embedding vector for the given text. */
+  embed(text: string): Promise<number[]>;
+  /** Generate embeddings for multiple texts in a batch. */
+  embedBatch(texts: string[]): Promise<number[][]>;
+  /** The dimensionality of the embedding vectors produced. */
+  readonly dimensions: number;
+}
+
+// ---------------------------------------------------------------------------
 // Token counter interface (pluggable)
 // ---------------------------------------------------------------------------
 
