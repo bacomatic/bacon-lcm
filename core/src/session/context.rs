@@ -1,4 +1,4 @@
-// core/src/context.rs
+// core/src/session/context.rs
 use crate::error::LcmResult;
 use crate::storage::{MessageStore, SummaryDag};
 use crate::types::*;

@@ -1,0 +1,9 @@
+[package]
+name = "bacon-lcm-cli"
+version.workspace = true
+license.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "bacon-lcm-cli"
+path = "src/main.rs"

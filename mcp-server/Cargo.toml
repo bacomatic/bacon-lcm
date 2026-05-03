@@ -1,0 +1,9 @@
+[package]
+name = "bacon-lcm-mcp-server"
+version.workspace = true
+license.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "bacon-lcm-mcp-server"
+path = "src/main.rs"

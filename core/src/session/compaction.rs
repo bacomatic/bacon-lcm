@@ -1,4 +1,4 @@
-// core/src/compaction.rs
+// core/src/session/compaction.rs
 use crate::error::{CompactionError, CompactionOpResult};
 use crate::types::{CompactionConfig, CompactionResult, SessionId};
 
