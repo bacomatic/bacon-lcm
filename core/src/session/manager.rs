@@ -178,12 +178,20 @@ impl SessionManager {
         if self.core.needs_emergency_compaction().await? {
             self.core
                 .compaction_engine()
-                .emergency_compaction(session_id)
+                .emergency_compaction(
+                    session_id,
+                    &*self.core.storage.summaries,
+                )
                 .await?;
         } else {
             self.core
                 .compaction_engine()
-                .compact(session_id)
+                .compact(
+                    session_id,
+                    &*self.core.storage.messages,
+                    &*self.core.storage.summaries,
+                    &*self.core.providers.summarizer,
+                )
                 .await?;
         }
         Ok(())

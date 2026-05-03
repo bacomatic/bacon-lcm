@@ -8,6 +8,7 @@
 //! - Type-safe ID management
 //! - Comprehensive error handling
 
+pub mod compaction;
 pub mod config;
 pub mod error;
 pub mod ids;
@@ -30,8 +31,8 @@ pub use providers::*;
 pub use session::LcmSession;
 // Also re-export the session helper types
 pub use session::{DescribeResult, SessionInfo};
-// CompactionEngine is now nested under session::compaction
-pub use session::compaction::CompactionEngine;
+// CompactionEngine lives in the top-level compaction module
+pub use compaction::CompactionEngine;
 #[allow(unused_imports)]
 pub use storage::*;
 #[allow(unused_imports)]
