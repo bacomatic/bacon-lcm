@@ -44,7 +44,12 @@ export type { DescribeResult } from "./retrieval.js";
 export { RetrievalService } from "./retrieval.js";
 
 // Session manager
+export type { LcmSessionOptions } from "./session.js";
 export { LcmSession } from "./session.js";
+
+// PostgreSQL persistence
+export { PgMessageStore } from "./pg/index.js";
+export { PgSummaryDag } from "./pg/index.js";
 
 // Defaults
 export {

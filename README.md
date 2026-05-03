@@ -99,6 +99,49 @@ if (summaries.length > 0) {
 
 Replace `NaiveTokenCounter` with tiktoken or your model's tokenizer, and `EchoSummarizer` with an actual LLM call for production use.
 
+## PostgreSQL Persistence
+
+For durable, cross-session memory, swap the in-memory stores for Postgres-backed ones:
+
+```bash
+# 1. Create the database and run the migration
+createdb bacon_lcm
+psql bacon_lcm < sql/001_init.sql
+```
+
+```typescript
+import pg from "pg";
+import {
+  LcmSession,
+  NaiveTokenCounter,
+  EchoSummarizer,
+  PgMessageStore,
+  PgSummaryDag,
+  DEFAULT_COMPACTION_CONFIG,
+} from "bacon-lcm";
+
+const pool = new pg.Pool({ connectionString: "postgres://localhost:5432/bacon_lcm" });
+const tokenCounter = new NaiveTokenCounter();
+
+const store = new PgMessageStore(pool, tokenCounter);
+const dag = new PgSummaryDag(pool, tokenCounter);
+
+// Optionally auto-migrate (safe to call repeatedly)
+await store.migrate();
+await dag.migrate();
+
+const session = new LcmSession(
+  tokenCounter,
+  new EchoSummarizer(),
+  DEFAULT_COMPACTION_CONFIG,
+  { store, dag },   // <-- inject Postgres-backed stores
+);
+
+await session.addMessage("user", "This will be persisted to Postgres");
+```
+
+The Postgres stores expose `*Async` variants of every method (e.g. `appendAsync`, `getAsync`, `getBySessionAsync`) for proper async/await usage. The sync interface methods are implemented for interface compatibility but will throw for read operations — use the async versions in production.
+
 ## Integration: MCP Server
 
 The MCP server exposes LCM as tools that any MCP-compatible agent can call.
@@ -190,6 +233,13 @@ src/
     cli.ts          CLI entry point for hook scripts
     index.ts        Hooks barrel export
     hooks.test.ts   Hook test suite
+  pg/
+    pg-store.ts     PostgreSQL message store
+    pg-dag.ts       PostgreSQL summary DAG
+    index.ts        Pg barrel export
+    pg.test.ts      Postgres integration tests
+sql/
+  001_init.sql      Database migration
 .windsurf/
   hooks.json        Windsurf hooks config (ready to use)
 .github/

@@ -7,9 +7,11 @@
  */
 import { CompactionEngine } from "./compaction.js";
 import { ContextAssembler } from "./context.js";
+import type { SummaryDag } from "./dag.js";
 import { InMemorySummaryDag } from "./dag.js";
 import { newSessionId } from "./ids.js";
 import { RetrievalService } from "./retrieval.js";
+import type { MessageStore } from "./store.js";
 import { InMemoryMessageStore } from "./store.js";
 import type {
   CompactionConfig,
@@ -23,10 +25,16 @@ import type {
   TokenCounter,
 } from "./types.js";
 
+export interface LcmSessionOptions {
+  sessionId?: SessionId;
+  store?: MessageStore;
+  dag?: SummaryDag;
+}
+
 export class LcmSession {
   readonly session: Session;
-  readonly store: InMemoryMessageStore;
-  readonly dag: InMemorySummaryDag;
+  readonly store: MessageStore;
+  readonly dag: SummaryDag;
   readonly compaction: CompactionEngine;
   readonly context: ContextAssembler;
   readonly retrieval: RetrievalService;
@@ -35,16 +43,22 @@ export class LcmSession {
     private readonly tokenCounter: TokenCounter,
     private readonly summarizer: Summarizer,
     private readonly config: CompactionConfig,
-    sessionId?: SessionId,
+    opts?: LcmSessionOptions | SessionId,
   ) {
+    // Backwards-compatible: accept bare SessionId or options object
+    const options: LcmSessionOptions =
+      typeof opts === "string" || opts === undefined
+        ? { sessionId: opts as SessionId | undefined }
+        : opts;
+
     this.session = {
-      id: sessionId ?? newSessionId(),
+      id: options.sessionId ?? newSessionId(),
       createdAt: new Date(),
       activeTokenCount: 0,
     };
 
-    this.store = new InMemoryMessageStore(tokenCounter);
-    this.dag = new InMemorySummaryDag(tokenCounter);
+    this.store = options.store ?? new InMemoryMessageStore(tokenCounter);
+    this.dag = options.dag ?? new InMemorySummaryDag(tokenCounter);
     this.compaction = new CompactionEngine(
       this.store,
       this.dag,
