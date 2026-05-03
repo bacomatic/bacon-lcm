@@ -83,7 +83,7 @@ export type { SessionSnapshot, DashboardOverview, DashboardOptions } from "./das
 
 // Hooks
 export type { HookEvent, HookResult } from "./hooks/index.js";
-export { handleHookEvent, resetSession } from "./hooks/index.js";
+export { handleHookEvent, resetSession, shutdownPool } from "./hooks/index.js";
 export { parseWindsurfHook } from "./hooks/index.js";
 export { parseCopilotHook } from "./hooks/index.js";
 export type { CopilotHookType } from "./hooks/index.js";

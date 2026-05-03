@@ -10,7 +10,7 @@
  *   echo '{"agent_action_name":"pre_user_prompt",...}' | bacon-lcm-hook --platform windsurf
  *   echo '{"timestamp":123,...}'                       | bacon-lcm-hook --platform copilot --hook userPromptSubmitted
  */
-import { handleHookEvent } from "./handler.js";
+import { handleHookEvent, shutdownPool } from "./handler.js";
 import { parseWindsurfHook } from "./windsurf.js";
 import { parseCopilotHook, type CopilotHookType } from "./copilot.js";
 
@@ -84,8 +84,11 @@ async function main() {
     process.stdout.write(JSON.stringify(result) + "\n");
   } catch (err) {
     process.stderr.write(`bacon-lcm-hook: error: ${err}\n`);
+    await shutdownPool();
     process.exit(1);
   }
+
+  await shutdownPool();
 }
 
 main();

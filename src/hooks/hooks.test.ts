@@ -1,10 +1,22 @@
-import { describe, expect, it, beforeEach } from "vitest";
-import { handleHookEvent, resetSession, type HookEvent } from "./handler.js";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { handleHookEvent, resetSession, shutdownPool, type HookEvent } from "./handler.js";
 import { parseWindsurfHook } from "./windsurf.js";
 import { parseCopilotHook } from "./copilot.js";
+import { resetConfig } from "../config.js";
+
+let savedDbUrl: string | undefined;
 
 beforeEach(() => {
+  savedDbUrl = process.env.DATABASE_URL;
+  delete process.env.DATABASE_URL;
+  resetConfig();
   resetSession();
+});
+
+afterEach(async () => {
+  await shutdownPool();
+  if (savedDbUrl !== undefined) process.env.DATABASE_URL = savedDbUrl;
+  else delete process.env.DATABASE_URL;
 });
 
 // ---------------------------------------------------------------------------
