@@ -14,6 +14,8 @@ path = "src/lib.rs"
 
 [dependencies]
 bacon-lcm-core     = { path = "../core" }
+bacon-lcm-daemon   = { path = "../daemon" }
+sqlx               = { workspace = true }
 rmcp               = { workspace = true }
 schemars           = { workspace = true }
 tokio              = { workspace = true }

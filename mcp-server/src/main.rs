@@ -14,6 +14,7 @@
 use anyhow::Context;
 use rmcp::{ServiceExt, transport::stdio};
 use tracing_subscriber::EnvFilter;
+use sqlx;
 
 use bacon_lcm_mcp_server::server::LcmServer;
 
@@ -87,12 +88,10 @@ async fn main() -> anyhow::Result<()> {
 
 // ── Session restore helper ────────────────────────────────────────────────────
 
-/// Attempt to restore a session by ID using in-memory storage and env-configured
-/// providers.
+/// Attempt to restore a session by ID.
 ///
-/// With in-memory storage this always returns `LcmError::SessionNotFound`.
-/// The function exists as a clean extension point for when the daemon injects
-/// a `StorageLayer::postgres(pool)`.
+/// Uses Postgres storage when DATABASE_URL is set; otherwise in-memory
+/// (which always fails with SessionNotFound — the call site handles this).
 async fn build_restored_session(
     session_id: uuid::Uuid,
 ) -> bacon_lcm_core::LcmResult<bacon_lcm_core::LcmSession> {
@@ -115,13 +114,24 @@ async fn build_restored_session(
     let embedder = create_embedder("null", None, None, None, None)
         .map_err(bacon_lcm_core::LcmError::Provider)?;
 
+    let storage = if let Ok(db_url) = std::env::var("DATABASE_URL") {
+        let pool = sqlx::PgPool::connect(&db_url)
+            .await
+            .map_err(|e| bacon_lcm_core::LcmError::Storage(
+                bacon_lcm_core::StorageError::ConnectionFailed(e),
+            ))?;
+        bacon_lcm_daemon::storage::postgres_layer(pool)
+    } else {
+        StorageLayer::memory()
+    };
+
     LcmSession::restore(
         session_id,
         token_counter,
         summarizer,
         embedder,
         LcmConfig::defaults(),
-        StorageLayer::memory(),
+        storage,
     )
     .await
 }

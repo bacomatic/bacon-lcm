@@ -348,6 +348,9 @@ impl ServerHandler for LcmServer {
 // ── Provider / session factory ────────────────────────────────────────────────
 
 /// Build the default LCM session from environment variables.
+///
+/// If `DATABASE_URL` is set, uses the Postgres `StorageLayer`; otherwise
+/// falls back to the in-memory layer (useful for local dev/testing).
 pub async fn build_default_session() -> bacon_lcm_core::LcmResult<LcmSession> {
     let provider = std::env::var("LCM_SUMMARIZER_PROVIDER")
         .unwrap_or_else(|_| "echo".to_string());
@@ -359,7 +362,7 @@ pub async fn build_default_session() -> bacon_lcm_core::LcmResult<LcmSession> {
         .map_err(bacon_lcm_core::LcmError::Provider)?;
     let summarizer = create_summarizer(
         &provider,
-        model,    // String (not Option<String>)
+        model,
         None,
         api_key,
         None,
@@ -370,7 +373,19 @@ pub async fn build_default_session() -> bacon_lcm_core::LcmResult<LcmSession> {
         .map_err(bacon_lcm_core::LcmError::Provider)?;
 
     let config = LcmConfig::defaults();
-    let storage = StorageLayer::memory();
+
+    let storage = if let Ok(db_url) = std::env::var("DATABASE_URL") {
+        tracing::info!("DATABASE_URL set — using Postgres storage layer");
+        let pool = sqlx::PgPool::connect(&db_url)
+            .await
+            .map_err(|e| bacon_lcm_core::LcmError::Storage(
+                bacon_lcm_core::StorageError::ConnectionFailed(e),
+            ))?;
+        bacon_lcm_daemon::storage::postgres_layer(pool)
+    } else {
+        tracing::debug!("DATABASE_URL not set — using in-memory storage layer");
+        StorageLayer::memory()
+    };
 
     LcmSession::new(token_counter, summarizer, embedder, config, storage).await
 }
@@ -538,5 +553,17 @@ mod tests {
             .await;
         assert!(result.is_ok());
         assert!(result.unwrap().is_error.unwrap_or(false));
+    }
+
+    #[tokio::test]
+    async fn test_build_default_session_memory_when_no_db_url() {
+        // When DATABASE_URL is not set the session must still build successfully.
+        std::env::remove_var("DATABASE_URL");
+        let session = build_default_session().await;
+        assert!(
+            session.is_ok(),
+            "build_default_session failed without DATABASE_URL: {:?}",
+            session.err()
+        );
     }
 }
