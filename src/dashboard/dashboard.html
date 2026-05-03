@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>bacon-lcm Dashboard</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface2: #242836;
+    --border: #2e3345;
+    --text: #e1e4ed;
+    --text-dim: #8b8fa3;
+    --accent: #7c5cfc;
+    --accent-glow: rgba(124, 92, 252, 0.15);
+    --green: #34d399;
+    --amber: #fbbf24;
+    --red: #f87171;
+    --blue: #60a5fa;
+    --radius: 12px;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+  }
+
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 20px 32px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+  }
+
+  header h1 {
+    font-size: 20px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  header h1 span.icon { font-size: 24px; }
+
+  .status-badge {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    color: var(--text-dim);
+  }
+
+  .status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--green);
+    animation: pulse 2s ease-in-out infinite;
+  }
+
+  .status-dot.disconnected { background: var(--red); animation: none; }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
+  .container { max-width: 1200px; margin: 0 auto; padding: 24px 32px; }
+
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px;
+    margin-bottom: 28px;
+  }
+
+  .stat-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px;
+    transition: border-color 0.2s;
+  }
+
+  .stat-card:hover { border-color: var(--accent); }
+
+  .stat-label {
+    font-size: 12px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-dim);
+    margin-bottom: 8px;
+  }
+
+  .stat-value {
+    font-size: 32px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+  }
+
+  .stat-value.green { color: var(--green); }
+  .stat-value.amber { color: var(--amber); }
+  .stat-value.red { color: var(--red); }
+  .stat-value.blue { color: var(--blue); }
+  .stat-value.accent { color: var(--accent); }
+
+  .section-title {
+    font-size: 16px;
+    font-weight: 600;
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .sessions-table {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+
+  .sessions-table th {
+    text-align: left;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-dim);
+    padding: 14px 16px;
+    background: var(--surface2);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .sessions-table td {
+    padding: 14px 16px;
+    font-size: 14px;
+    border-bottom: 1px solid var(--border);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .sessions-table tr:last-child td { border-bottom: none; }
+
+  .sessions-table tr:hover td { background: var(--surface2); }
+
+  .active-tag {
+    display: inline-block;
+    background: var(--accent-glow);
+    color: var(--accent);
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 8px;
+    border-radius: 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+  }
+
+  .mono {
+    font-family: 'SF Mono', SFMono-Regular, Consolas, 'Liberation Mono', Menlo, monospace;
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+
+  .token-bar-container {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .token-bar {
+    flex: 1;
+    height: 8px;
+    background: var(--surface2);
+    border-radius: 4px;
+    overflow: hidden;
+    max-width: 120px;
+  }
+
+  .token-bar-fill {
+    height: 100%;
+    border-radius: 4px;
+    transition: width 0.4s ease, background 0.4s ease;
+  }
+
+  .empty-state {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--text-dim);
+  }
+
+  .empty-state .icon { font-size: 48px; margin-bottom: 16px; }
+  .empty-state h3 { font-size: 18px; margin-bottom: 8px; color: var(--text); }
+
+  .context-breakdown {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 16px;
+    margin-bottom: 28px;
+  }
+
+  .breakdown-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px;
+  }
+
+  .breakdown-card h4 {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-dim);
+    margin-bottom: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .breakdown-items { display: flex; flex-direction: column; gap: 8px; }
+
+  .breakdown-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 14px;
+  }
+
+  .breakdown-row .label { color: var(--text-dim); }
+  .breakdown-row .value { font-weight: 600; font-variant-numeric: tabular-nums; }
+
+  .refresh-info {
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1><span class="icon">🥓</span> bacon-lcm Dashboard</h1>
+  <div class="status-badge">
+    <div class="status-dot" id="statusDot"></div>
+    <span id="statusText">Connected</span>
+    <span class="refresh-info" id="refreshInfo"></span>
+  </div>
+</header>
+
+<div class="container">
+  <div class="stats-grid" id="statsGrid">
+    <div class="stat-card">
+      <div class="stat-label">Sessions</div>
+      <div class="stat-value accent" id="statSessions">-</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Total Messages</div>
+      <div class="stat-value blue" id="statMessages">-</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Active Tokens</div>
+      <div class="stat-value green" id="statTokens">-</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Summary Nodes</div>
+      <div class="stat-value amber" id="statSummaries">-</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Archived</div>
+      <div class="stat-value" id="statArchived">-</div>
+    </div>
+  </div>
+
+  <div class="context-breakdown" id="breakdownSection" style="display:none">
+    <div class="breakdown-card">
+      <h4>Active Session Context</h4>
+      <div class="breakdown-items" id="contextBreakdown"></div>
+    </div>
+    <div class="breakdown-card">
+      <h4>Compaction Thresholds</h4>
+      <div class="breakdown-items" id="thresholdBreakdown"></div>
+    </div>
+  </div>
+
+  <div>
+    <div class="section-title">📋 Sessions</div>
+    <div id="sessionsContainer"></div>
+  </div>
+</div>
+
+<script>
+const API_BASE = window.location.origin;
+let lastData = null;
+
+function formatNum(n) {
+  if (n === undefined || n === null) return '-';
+  return n.toLocaleString();
+}
+
+function tokenColor(tokens, softLimit, hardLimit) {
+  if (tokens >= hardLimit) return 'red';
+  if (tokens >= softLimit) return 'amber';
+  return 'green';
+}
+
+function tokenBarColor(tokens, softLimit, hardLimit) {
+  if (tokens >= hardLimit) return 'var(--red)';
+  if (tokens >= softLimit) return 'var(--amber)';
+  return 'var(--green)';
+}
+
+function relativeTime(iso) {
+  const diff = Date.now() - new Date(iso).getTime();
+  const secs = Math.floor(diff / 1000);
+  if (secs < 60) return `${secs}s ago`;
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  return `${hrs}h ${mins % 60}m ago`;
+}
+
+function renderEmptyState() {
+  document.getElementById('sessionsContainer').innerHTML = `
+    <div class="empty-state">
+      <div class="icon">📭</div>
+      <h3>No active sessions</h3>
+      <p>Start using the MCP server or hooks to create sessions.</p>
+    </div>`;
+  document.getElementById('breakdownSection').style.display = 'none';
+}
+
+function render(data) {
+  lastData = data;
+
+  const totalMsgs = data.sessions.reduce((s, x) => s + x.totalMessages, 0);
+  const totalTokens = data.sessions.reduce((s, x) => s + x.activeTokenCount, 0);
+  const totalSummaries = data.sessions.reduce((s, x) => s + x.totalSummaryNodes, 0);
+  const totalArchived = data.sessions.reduce((s, x) => s + x.archivedSummaries, 0);
+
+  document.getElementById('statSessions').textContent = formatNum(data.sessionCount);
+  document.getElementById('statMessages').textContent = formatNum(totalMsgs);
+  document.getElementById('statTokens').textContent = formatNum(totalTokens);
+  document.getElementById('statSummaries').textContent = formatNum(totalSummaries);
+  document.getElementById('statArchived').textContent = formatNum(totalArchived);
+
+  if (data.sessions.length === 0) {
+    renderEmptyState();
+    return;
+  }
+
+  // Active session breakdown
+  const active = data.sessions.find(s => s.isActive) || data.sessions[0];
+  if (active && data.thresholds) {
+    document.getElementById('breakdownSection').style.display = '';
+    const t = data.thresholds;
+    const pct = Math.min(100, Math.round((active.activeTokenCount / t.hardLimit) * 100));
+    const color = tokenBarColor(active.activeTokenCount, t.softLimit, t.hardLimit);
+
+    document.getElementById('contextBreakdown').innerHTML = `
+      <div class="breakdown-row">
+        <span class="label">Context items</span>
+        <span class="value">${active.contextItems}</span>
+      </div>
+      <div class="breakdown-row">
+        <span class="label">Active summaries</span>
+        <span class="value">${active.activeSummaries}</span>
+      </div>
+      <div class="breakdown-row">
+        <span class="label">Archived summaries</span>
+        <span class="value">${active.archivedSummaries}</span>
+      </div>
+      <div class="breakdown-row">
+        <span class="label">Token usage</span>
+        <div class="token-bar-container">
+          <div class="token-bar">
+            <div class="token-bar-fill" style="width:${pct}%;background:${color}"></div>
+          </div>
+          <span class="value">${pct}%</span>
+        </div>
+      </div>`;
+
+    document.getElementById('thresholdBreakdown').innerHTML = `
+      <div class="breakdown-row">
+        <span class="label">Model max</span>
+        <span class="value">${formatNum(t.modelMaxTokens)}</span>
+      </div>
+      <div class="breakdown-row">
+        <span class="label">Soft limit</span>
+        <span class="value" style="color:var(--amber)">${formatNum(t.softLimit)}</span>
+      </div>
+      <div class="breakdown-row">
+        <span class="label">Hard limit</span>
+        <span class="value" style="color:var(--red)">${formatNum(t.hardLimit)}</span>
+      </div>
+      <div class="breakdown-row">
+        <span class="label">Risk buffer</span>
+        <span class="value">${formatNum(t.riskBuffer)}</span>
+      </div>`;
+  } else {
+    document.getElementById('breakdownSection').style.display = 'none';
+  }
+
+  // Sessions table
+  let html = `<table class="sessions-table">
+    <thead><tr>
+      <th>Session</th>
+      <th>Created</th>
+      <th>Messages</th>
+      <th>Tokens</th>
+      <th>Summaries</th>
+      <th>Archived</th>
+      <th>Status</th>
+    </tr></thead><tbody>`;
+
+  for (const s of data.sessions) {
+    const shortId = s.sessionId.slice(0, 8) + '…';
+    const pct = data.thresholds
+      ? Math.min(100, Math.round((s.activeTokenCount / data.thresholds.hardLimit) * 100))
+      : 0;
+    const color = data.thresholds
+      ? tokenBarColor(s.activeTokenCount, data.thresholds.softLimit, data.thresholds.hardLimit)
+      : 'var(--green)';
+
+    html += `<tr>
+      <td><span class="mono" title="${s.sessionId}">${shortId}</span></td>
+      <td><span class="mono">${relativeTime(s.createdAt)}</span></td>
+      <td>${formatNum(s.totalMessages)}</td>
+      <td>
+        <div class="token-bar-container">
+          <span>${formatNum(s.activeTokenCount)}</span>
+          <div class="token-bar">
+            <div class="token-bar-fill" style="width:${pct}%;background:${color}"></div>
+          </div>
+        </div>
+      </td>
+      <td>${s.activeSummaries} active / ${formatNum(s.totalSummaryNodes)} total</td>
+      <td>${formatNum(s.archivedSummaries)}</td>
+      <td>${s.isActive ? '<span class="active-tag">Active</span>' : '<span class="mono">idle</span>'}</td>
+    </tr>`;
+  }
+
+  html += '</tbody></table>';
+  document.getElementById('sessionsContainer').innerHTML = html;
+}
+
+let pollInterval = null;
+let failCount = 0;
+
+async function poll() {
+  try {
+    const res = await fetch(API_BASE + '/api/overview');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    render(data);
+    failCount = 0;
+    document.getElementById('statusDot').classList.remove('disconnected');
+    document.getElementById('statusText').textContent = 'Connected';
+    document.getElementById('refreshInfo').textContent = '· refreshing every 2s';
+  } catch (err) {
+    failCount++;
+    if (failCount >= 3) {
+      document.getElementById('statusDot').classList.add('disconnected');
+      document.getElementById('statusText').textContent = 'Disconnected';
+      document.getElementById('refreshInfo').textContent = '· retrying…';
+    }
+  }
+}
+
+poll();
+pollInterval = setInterval(poll, 2000);
+</script>
+</body>
+</html>

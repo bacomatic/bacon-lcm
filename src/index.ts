@@ -59,6 +59,10 @@ export {
   NaiveTokenCounter,
 } from "./defaults.js";
 
+// Dashboard
+export { registry, startDashboard } from "./dashboard/index.js";
+export type { SessionSnapshot, DashboardOverview, DashboardOptions } from "./dashboard/index.js";
+
 // Hooks
 export type { HookEvent, HookResult } from "./hooks/index.js";
 export { handleHookEvent, resetSession } from "./hooks/index.js";

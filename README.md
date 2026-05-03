@@ -160,6 +160,56 @@ Set `DATABASE_URL` when starting the MCP server for persistent cross-session mem
 
 Without `DATABASE_URL`, the MCP server falls back to in-memory storage.
 
+## Dashboard
+
+An optional local dashboard shows real-time LCM stats in your browser.
+
+### With the MCP server
+
+Enable the dashboard by setting `DASHBOARD=1` or `DASHBOARD_PORT`:
+
+```json
+{
+  "mcpServers": {
+    "bacon-lcm": {
+      "command": "node",
+      "args": ["/path/to/bacon-lcm/dist/mcp-server.js"],
+      "env": {
+        "DATABASE_URL": "postgres://localhost:5432/bacon_lcm",
+        "DASHBOARD": "1"
+      }
+    }
+  }
+}
+```
+
+Then open **http://127.0.0.1:3333** in your browser.
+
+### Standalone
+
+```bash
+bacon-lcm-dashboard                     # default port 3333
+DASHBOARD_PORT=4000 bacon-lcm-dashboard  # custom port
+```
+
+### Programmatic
+
+```typescript
+import { startDashboard, registry } from "bacon-lcm";
+
+// Register your session so the dashboard can observe it
+registry.register(session);
+registry.setActive(session.session.id);
+
+startDashboard({ port: 3333 });
+```
+
+The dashboard auto-refreshes every 2 seconds and shows:
+- **Session count, total messages, active tokens, summary nodes, archived count**
+- **Token usage bar** with color-coded thresholds (green/amber/red)
+- **Compaction thresholds** from the active session's config
+- **Per-session table** with detailed stats
+
 ## Integration: MCP Server
 
 The MCP server exposes LCM as tools that any MCP-compatible agent can call.
@@ -251,6 +301,11 @@ src/
     cli.ts          CLI entry point for hook scripts
     index.ts        Hooks barrel export
     hooks.test.ts   Hook test suite
+  dashboard/
+    registry.ts     Shared session registry (singleton)
+    server.ts       HTTP server + REST API (zero dependencies)
+    dashboard.html  Self-contained SPA (vanilla JS + CSS)
+    index.ts        Dashboard barrel export
   pg/
     pg-store.ts     PostgreSQL message store
     pg-dag.ts       PostgreSQL summary DAG

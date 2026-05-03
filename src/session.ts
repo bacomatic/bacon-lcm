@@ -42,7 +42,7 @@ export class LcmSession {
   constructor(
     private readonly tokenCounter: TokenCounter,
     private readonly summarizer: Summarizer,
-    private readonly config: CompactionConfig,
+    readonly config: CompactionConfig,
     opts?: LcmSessionOptions | SessionId,
   ) {
     // Backwards-compatible: accept bare SessionId or options object

@@ -7,10 +7,11 @@
   "types": "dist/index.d.ts",
   "bin": {
     "bacon-lcm-mcp": "dist/mcp-server.js",
-    "bacon-lcm-hook": "dist/hooks/cli.js"
+    "bacon-lcm-hook": "dist/hooks/cli.js",
+    "bacon-lcm-dashboard": "dist/dashboard/server.js"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && cp src/dashboard/dashboard.html dist/dashboard/",
     "dev": "tsc --watch",
     "test": "vitest run",
     "test:watch": "vitest",

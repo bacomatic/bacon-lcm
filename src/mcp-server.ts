@@ -28,6 +28,8 @@ import { LcmSession } from "./session.js";
 import type { MessageStore } from "./store.js";
 import type { SummaryDag } from "./dag.js";
 import type { CompactionConfig, SummaryId } from "./types.js";
+import { registry } from "./dashboard/registry.js";
+import { startDashboard } from "./dashboard/server.js";
 
 // ---------------------------------------------------------------------------
 // Persistence setup — uses Postgres if DATABASE_URL is set, else in-memory
@@ -78,6 +80,8 @@ function getActiveSession(): LcmSession {
     );
     activeSessionId = session.session.id;
     sessions.set(activeSessionId, session);
+    registry.register(session);
+    registry.setActive(activeSessionId);
   }
   return sessions.get(activeSessionId)!;
 }
@@ -254,6 +258,8 @@ server.tool(
     );
     activeSessionId = session.session.id;
     sessions.set(activeSessionId, session);
+    registry.register(session);
+    registry.setActive(activeSessionId);
 
     return {
       content: [
@@ -312,6 +318,12 @@ server.tool(
 
 async function main() {
   await initPersistence();
+
+  // Optionally start the dashboard server
+  if (process.env.DASHBOARD === "1" || process.env.DASHBOARD_PORT) {
+    startDashboard();
+  }
+
   const transport = new StdioServerTransport();
   await server.connect(transport);
 }
