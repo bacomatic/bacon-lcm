@@ -19,13 +19,39 @@ use uuid::Uuid;
 /// generating embeddings, assembling context, and deciding when compaction is
 /// required. Higher-level orchestration (e.g. the compaction lock) lives in
 /// [`crate::session::manager::SessionManager`] / the public [`LcmSession`] wrapper.
+///
+/// Fields are intentionally `pub(crate)` rather than fully `pub` so that
+/// external consumers must go through the accessor methods and the
+/// [`SessionManager`] public API, keeping the implementation details
+/// encapsulated.
 pub struct SessionCore {
-    pub session: Session,
-    pub storage: StorageLayer,
-    pub providers: ProviderRegistry,
-    pub config: LcmConfig,
-    pub context_assembler: ContextAssembler,
-    pub compaction_engine: Arc<CompactionEngine>,
+    pub(crate) session: Session,
+    pub(crate) storage: StorageLayer,
+    pub(crate) providers: ProviderRegistry,
+    pub(crate) config: LcmConfig,
+    pub(crate) context_assembler: ContextAssembler,
+    pub(crate) compaction_engine: Arc<CompactionEngine>,
+}
+
+impl SessionCore {
+    // ------------------------------------------------------------------
+    // Crate-internal accessors
+    // ------------------------------------------------------------------
+
+    /// Read-only access to the underlying [`Session`] record.
+    pub(crate) fn session(&self) -> &Session {
+        &self.session
+    }
+
+    /// Read-only access to the [`StorageLayer`].
+    pub(crate) fn storage(&self) -> &StorageLayer {
+        &self.storage
+    }
+
+    /// Read-only access to the [`CompactionEngine`].
+    pub(crate) fn compaction_engine(&self) -> &CompactionEngine {
+        &self.compaction_engine
+    }
 }
 
 impl SessionCore {
@@ -236,7 +262,7 @@ impl SessionCore {
     // ------------------------------------------------------------------
 
     fn is_null_embedder(&self) -> bool {
-        self.providers.embedder.name() == "null"
+        self.providers.embedder.is_null()
     }
 
     async fn count_reachable_messages(&self, lineage: &[LineagePointer]) -> LcmResult<usize> {

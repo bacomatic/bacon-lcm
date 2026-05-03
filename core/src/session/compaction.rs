@@ -56,7 +56,7 @@ mod tests {
 
         let result = engine.compact(session_id).await;
         assert!(result.is_err());
-        matches!(result.unwrap_err(), CompactionError::NoMessagesToCompact);
+        assert!(matches!(result.unwrap_err(), CompactionError::NoMessagesToCompact));
     }
 
     #[tokio::test]
@@ -66,6 +66,6 @@ mod tests {
 
         let result = engine.emergency_compaction(session_id).await;
         assert!(result.is_err());
-        matches!(result.unwrap_err(), CompactionError::NoMessagesToCompact);
+        assert!(matches!(result.unwrap_err(), CompactionError::NoMessagesToCompact));
     }
 }

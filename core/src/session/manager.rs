@@ -6,16 +6,23 @@ use crate::session::core::SessionCore;
 use crate::storage::{StorageLayer, VectorRecord};
 use crate::types::{ContextItem, Message, MessageId, MessageRole, Session, SessionId, SummaryId};
 use super::{DescribeResult, SessionInfo};
-use tokio::sync::RwLock;
-use std::sync::Arc;
 
-/// High-level session manager: wraps [`SessionCore`] and adds the compaction
-/// concurrency guard plus the full public API surface.
+/// High-level session manager: wraps [`SessionCore`] and adds the full public
+/// API surface.
 ///
 /// This is the type exposed to callers as [`crate::session::LcmSession`].
+///
+/// # Concurrency note
+///
+/// `add_message` takes `&mut self`, which means the borrow checker already
+/// prevents concurrent calls on the same [`SessionManager`] instance.  There
+/// is therefore no need for an extra runtime lock around the compaction flag —
+/// a plain `bool` field is sufficient.
 pub struct SessionManager {
     core: SessionCore,
-    is_compacting: Arc<RwLock<bool>>,
+    /// Tracks whether a compaction pass is currently running.
+    /// Protected by `&mut self` — no extra `Arc<RwLock<…>>` required.
+    is_compacting: bool,
 }
 
 impl SessionManager {
@@ -34,7 +41,7 @@ impl SessionManager {
         let core = SessionCore::new(token_counter, summarizer, embedder, config, storage).await?;
         Ok(Self {
             core,
-            is_compacting: Arc::new(RwLock::new(false)),
+            is_compacting: false,
         })
     }
 
@@ -58,7 +65,7 @@ impl SessionManager {
         .await?;
         Ok(Self {
             core,
-            is_compacting: Arc::new(RwLock::new(false)),
+            is_compacting: false,
         })
     }
 
@@ -68,10 +75,15 @@ impl SessionManager {
 
     /// Expose the underlying `Session` record.
     pub fn session(&self) -> &Session {
-        &self.core.session
+        self.core.session()
     }
 
     /// Add a message to the session, triggering compaction if necessary.
+    ///
+    /// Message persistence is the primary contract of this method.  Compaction
+    /// is a background concern: if it fails for any reason the message has
+    /// already been stored successfully, so we deliberately swallow the
+    /// compaction error rather than surfacing it to the caller.
     pub async fn add_message(
         &mut self,
         role: MessageRole,
@@ -79,8 +91,13 @@ impl SessionManager {
     ) -> LcmResult<MessageId> {
         let message_id = self.core.store_message(role, content).await?;
 
-        if self.core.needs_compaction().await? {
-            self.trigger_compaction().await?;
+        // `needs_compaction` is best-effort; ignore errors so they don't
+        // bubble up and mask the successful message store.
+        if let Ok(true) = self.core.needs_compaction().await {
+            // Compaction errors are intentionally swallowed: the message has
+            // already been persisted and the compaction can be retried on the
+            // next call.
+            let _ = self.trigger_compaction().await;
         }
 
         Ok(message_id)
@@ -122,18 +139,18 @@ impl SessionManager {
         let token_count = self.get_token_count().await?;
         let summary_count = self
             .core
-            .storage
+            .storage()
             .summaries
-            .get_session_summaries(self.core.session.id)
+            .get_session_summaries(self.core.session().id)
             .await?
             .len();
 
         Ok(SessionInfo {
-            session: self.core.session.clone(),
+            session: self.core.session().clone(),
             message_count,
             token_count,
             summary_count,
-            is_compacting: *self.is_compacting.read().await,
+            is_compacting: self.is_compacting,
         })
     }
 
@@ -141,35 +158,32 @@ impl SessionManager {
     // Compaction
     // ------------------------------------------------------------------
 
-    async fn trigger_compaction(&self) -> LcmResult<()> {
-        {
-            let mut flag = self.is_compacting.write().await;
-            if *flag {
-                return Ok(());
-            }
-            *flag = true;
+    /// Set the compaction flag, run compaction, then clear the flag.
+    ///
+    /// Because `add_message` takes `&mut self`, only one compaction pass can
+    /// ever run at a time for a given [`SessionManager`].  The `is_compacting`
+    /// flag is therefore a plain `bool` — no `Arc<RwLock<…>>` needed.
+    async fn trigger_compaction(&mut self) -> LcmResult<()> {
+        if self.is_compacting {
+            return Ok(());
         }
-
+        self.is_compacting = true;
         let result = self.perform_compaction().await;
-
-        {
-            let mut flag = self.is_compacting.write().await;
-            *flag = false;
-        }
-
+        self.is_compacting = false;
         result
     }
 
     async fn perform_compaction(&self) -> LcmResult<()> {
+        let session_id = self.core.session().id;
         if self.core.needs_emergency_compaction().await? {
             self.core
-                .compaction_engine
-                .emergency_compaction(self.core.session.id)
+                .compaction_engine()
+                .emergency_compaction(session_id)
                 .await?;
         } else {
             self.core
-                .compaction_engine
-                .compact(self.core.session.id)
+                .compaction_engine()
+                .compact(session_id)
                 .await?;
         }
         Ok(())

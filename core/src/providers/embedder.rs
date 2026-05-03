@@ -14,6 +14,16 @@ pub trait Embedder: Send + Sync {
     
     /// Get the name/model of this embedder
     fn name(&self) -> &str;
+
+    /// Returns `true` if this is the null (no-op) embedder.
+    ///
+    /// The default implementation returns `false`; only [`NullEmbedder`]
+    /// overrides this to return `true`.  Prefer this method over comparing
+    /// `name() == "null"` so that the check is type-safe and does not depend
+    /// on a magic string.
+    fn is_null(&self) -> bool {
+        false
+    }
 }
 
 /// Null embedder (no embeddings)
@@ -44,6 +54,10 @@ impl Embedder for NullEmbedder {
     
     fn name(&self) -> &str {
         "null"
+    }
+
+    fn is_null(&self) -> bool {
+        true
     }
 }
 
@@ -124,6 +138,7 @@ mod tests {
         let embedder = NullEmbedder::default();
         assert_eq!(embedder.name(), "null");
         assert_eq!(embedder.dimensions(), 0);
+        assert!(embedder.is_null());
         
         let result = embedder.embed("test").await;
         assert!(result.is_err());
