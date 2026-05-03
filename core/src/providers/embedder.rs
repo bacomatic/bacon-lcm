@@ -13,7 +13,7 @@ pub trait Embedder: Send + Sync {
     fn dimensions(&self) -> usize;
     
     /// Get the name/model of this embedder
-    fn name(&self) -> &'static str;
+    fn name(&self) -> &str;
 }
 
 /// Null embedder (no embeddings)
@@ -42,7 +42,7 @@ impl Embedder for NullEmbedder {
         0
     }
     
-    fn name(&self) -> &'static str {
+    fn name(&self) -> &str {
         "null"
     }
 }
@@ -61,7 +61,7 @@ impl Embedder for OpenAIEmbedder {
         1536
     }
     
-    fn name(&self) -> &'static str {
+    fn name(&self) -> &str {
         "openai"
     }
 }
@@ -80,7 +80,7 @@ impl Embedder for LocalEmbedder {
         0
     }
     
-    fn name(&self) -> &'static str {
+    fn name(&self) -> &str {
         "local"
     }
 }

@@ -1,6 +1,6 @@
 // core/src/providers/summarizer.rs
 use crate::error::{ProviderError, ProviderResult};
-use crate::types::Message;
+use crate::types::{Message, MessageRole};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
@@ -11,7 +11,7 @@ pub trait Summarizer: Send + Sync {
     async fn summarize(&self, messages: &[Message]) -> ProviderResult<String>;
     
     /// Get the name/model of this summarizer
-    fn name(&self) -> &'static str;
+    fn name(&self) -> &str;
     
     /// Get maximum context length for this summarizer
     fn max_context_length(&self) -> usize;
@@ -47,10 +47,10 @@ impl Summarizer for EchoSummarizer {
         
         for (i, message) in messages.iter().enumerate() {
             let role_str = match message.role {
-                crate::types::MessageRole::User => "user",
-                crate::types::MessageRole::Assistant => "assistant",
-                crate::types::MessageRole::System => "system",
-                crate::types::MessageRole::Tool => "tool",
+                MessageRole::User => "user",
+                MessageRole::Assistant => "assistant",
+                MessageRole::System => "system",
+                MessageRole::Tool => "tool",
             };
             summary.push_str(&format!("{}. [{}] {}\n", i + 1, role_str, message.content));
         }
@@ -60,7 +60,7 @@ impl Summarizer for EchoSummarizer {
         Ok(summary)
     }
     
-    fn name(&self) -> &'static str {
+    fn name(&self) -> &str {
         "echo"
     }
     
@@ -136,10 +136,13 @@ impl Summarizer for OpenAISummarizer {
             .iter()
             .map(|m| OpenAIMessage {
                 role: match m.role {
-                    crate::types::MessageRole::User => "user".to_string(),
-                    crate::types::MessageRole::Assistant => "assistant".to_string(),
-                    crate::types::MessageRole::System => "system".to_string(),
-                    crate::types::MessageRole::Tool => "user".to_string(), // Map tool to user for summarization
+                    MessageRole::User => "user".to_string(),
+                    MessageRole::Assistant => "assistant".to_string(),
+                    MessageRole::System => "system".to_string(),
+                    // Tool messages are mapped to "user" because the OpenAI chat
+                    // completions API does not accept "tool" role without a preceding
+                    // tool_call, which we don't preserve during summarization.
+                    MessageRole::Tool => "user".to_string(),
                 },
                 content: m.content.clone(),
             })
@@ -175,8 +178,8 @@ impl Summarizer for OpenAISummarizer {
         }
     }
     
-    fn name(&self) -> &'static str {
-        "openai"
+    fn name(&self) -> &str {
+        &self.model
     }
     
     fn max_context_length(&self) -> usize {
@@ -230,6 +233,11 @@ struct AnthropicResponse {
 
 #[derive(Deserialize)]
 struct AnthropicContent {
+    /// The content block type (e.g. "text"). Required by the Anthropic API
+    /// response format for proper deserialization.
+    #[serde(rename = "type")]
+    #[allow(dead_code)]
+    content_type: String,
     text: String,
 }
 
@@ -244,10 +252,15 @@ impl Summarizer for AnthropicSummarizer {
             .iter()
             .map(|m| AnthropicMessage {
                 role: match m.role {
-                    crate::types::MessageRole::User => "user".to_string(),
-                    crate::types::MessageRole::Assistant => "assistant".to_string(),
-                    crate::types::MessageRole::System => "user".to_string(), // Map system to user
-                    crate::types::MessageRole::Tool => "user".to_string(), // Map tool to user
+                    MessageRole::User => "user".to_string(),
+                    MessageRole::Assistant => "assistant".to_string(),
+                    // Anthropic's Messages API only accepts "user" and "assistant" roles.
+                    // System messages should use the top-level `system` parameter, but for
+                    // summarization we fold them into "user" to preserve their content.
+                    MessageRole::System => "user".to_string(),
+                    // Tool messages are mapped to "user" for the same reason: the Anthropic
+                    // API requires tool_use/tool_result blocks we don't carry in summaries.
+                    MessageRole::Tool => "user".to_string(),
                 },
                 content: m.content.clone(),
             })
@@ -283,8 +296,8 @@ impl Summarizer for AnthropicSummarizer {
         }
     }
     
-    fn name(&self) -> &'static str {
-        "anthropic"
+    fn name(&self) -> &str {
+        &self.model
     }
     
     fn max_context_length(&self) -> usize {
@@ -348,6 +361,30 @@ mod tests {
         assert!(summary.contains("SUMMARY"));
     }
     
+    #[tokio::test]
+    async fn test_echo_summarizer_empty_messages() {
+        let summarizer = EchoSummarizer::default();
+        let summary = summarizer.summarize(&[]).await.unwrap();
+        assert!(summary.is_empty());
+    }
+    
+    #[tokio::test]
+    async fn test_echo_summarizer_all_roles() {
+        let summarizer = EchoSummarizer::default();
+        let messages = vec![
+            create_test_message(MessageRole::System, "You are helpful"),
+            create_test_message(MessageRole::User, "Hello"),
+            create_test_message(MessageRole::Assistant, "Hi"),
+            create_test_message(MessageRole::Tool, "tool result"),
+        ];
+        
+        let summary = summarizer.summarize(&messages).await.unwrap();
+        assert!(summary.contains("[system]"));
+        assert!(summary.contains("[user]"));
+        assert!(summary.contains("[assistant]"));
+        assert!(summary.contains("[tool]"));
+    }
+    
     #[test]
     fn test_factory() {
         let echo = create_summarizer("echo", "echo".to_string(), None, None, None, None).unwrap();
@@ -355,5 +392,11 @@ mod tests {
         
         let result = create_summarizer("openai", "gpt-4".to_string(), None, None, None, None);
         assert!(result.is_err()); // Should fail without API key
+        
+        let result = create_summarizer("anthropic", "claude-3".to_string(), None, None, None, None);
+        assert!(result.is_err()); // Should fail without API key
+        
+        let result = create_summarizer("unknown", "model".to_string(), None, None, None, None);
+        assert!(result.is_err()); // Unknown provider
     }
 }

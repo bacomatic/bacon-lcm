@@ -10,9 +10,6 @@ pub mod tokenizer;
 pub mod summarizer;
 pub mod embedder;
 
-use crate::error::LcmResult;
-use crate::types::*;
-
 // Re-export main traits and implementations
 pub use tokenizer::{TokenCounter, create_token_counter, NaiveTokenCounter, TiktokenCounter, AnthropicTokenCounter};
 pub use summarizer::{Summarizer, create_summarizer, EchoSummarizer, OpenAISummarizer, AnthropicSummarizer};
