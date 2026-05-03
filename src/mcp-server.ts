@@ -6,12 +6,14 @@
  * Works with Windsurf, Devin, Copilot CLI, and any other MCP-compatible host.
  *
  * Tools:
- *   lcm_store      — persist a message and trigger compaction if needed
- *   lcm_recall     — retrieve the current active context window
- *   lcm_describe   — inspect a summary node's lineage metadata
- *   lcm_expand     — expand a summary back to original messages
- *   lcm_session_new  — start a new LCM session
- *   lcm_session_info — get current session stats
+ *   lcm_store          — persist a message and trigger compaction if needed
+ *   lcm_recall         — retrieve the current active context window
+ *   lcm_describe       — inspect a summary node's lineage metadata
+ *   lcm_expand         — expand a summary back to original messages
+ *   lcm_session_new    — start a new LCM session
+ *   lcm_session_list   — list all persisted sessions
+ *   lcm_session_resume — resume a previously persisted session
+ *   lcm_session_info   — get current session stats
  */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -20,10 +22,12 @@ import { z } from "zod";
 import { createTokenCounter } from "./tokenizers/index.js";
 import { PgMessageStore } from "./pg/pg-store.js";
 import { PgSummaryDag } from "./pg/pg-dag.js";
+import { PgSessionStore } from "./pg/pg-session.js";
 import { LcmSession } from "./session.js";
+import type { SessionPersistence } from "./session.js";
 import type { MessageStore } from "./store.js";
 import type { SummaryDag } from "./dag.js";
-import type { SummaryId } from "./types.js";
+import type { SessionId, SummaryId } from "./types.js";
 import { loadConfig, type LcmConfig } from "./config.js";
 import { createSummarizer } from "./summarizers/index.js";
 import { registry } from "./dashboard/registry.js";
@@ -39,6 +43,7 @@ let tokenCounter: import("./types.js").TokenCounter;
 let pool: pg.Pool | null = null;
 let sharedStore: MessageStore | undefined;
 let sharedDag: SummaryDag | undefined;
+let sharedSessionStore: SessionPersistence | undefined;
 
 async function init(): Promise<void> {
   config = loadConfig();
@@ -63,7 +68,8 @@ async function init(): Promise<void> {
     await pgDag.migrate();
     sharedStore = pgStore;
     sharedDag = pgDag;
-    console.error(`bacon-lcm MCP: using Postgres`);
+    sharedSessionStore = new PgSessionStore(pool);
+    console.error(`bacon-lcm MCP: using Postgres (sessions persisted)`);
   } else {
     console.error("bacon-lcm MCP: using in-memory storage (set DATABASE_URL for persistence)");
   }
@@ -85,19 +91,26 @@ const sessions = new Map<string, LcmSession>();
 
 let activeSessionId: string | null = null;
 
+function createNewSession(): LcmSession {
+  const summarizer = createSummarizer(config.summarizer);
+  const session = new LcmSession(
+    tokenCounter,
+    summarizer,
+    config.compaction,
+    { store: sharedStore, dag: sharedDag, sessionStore: sharedSessionStore },
+  );
+  activeSessionId = session.session.id;
+  sessions.set(activeSessionId, session);
+  registry.register(session);
+  registry.setActive(activeSessionId);
+  // Persist initial session row
+  session.save().catch(() => {});
+  return session;
+}
+
 function getActiveSession(): LcmSession {
   if (!activeSessionId || !sessions.has(activeSessionId)) {
-    const summarizer = createSummarizer(config.summarizer);
-    const session = new LcmSession(
-      tokenCounter,
-      summarizer,
-      config.compaction,
-      { store: sharedStore, dag: sharedDag },
-    );
-    activeSessionId = session.session.id;
-    sessions.set(activeSessionId, session);
-    registry.register(session);
-    registry.setActive(activeSessionId);
+    return createNewSession();
   }
   return sessions.get(activeSessionId)!;
 }
@@ -266,17 +279,7 @@ server.tool(
   "Create a new LCM session and set it as the active session.",
   {},
   async () => {
-    const summarizer = createSummarizer(config.summarizer);
-    const session = new LcmSession(
-      tokenCounter,
-      summarizer,
-      config.compaction,
-      { store: sharedStore, dag: sharedDag },
-    );
-    activeSessionId = session.session.id;
-    sessions.set(activeSessionId, session);
-    registry.register(session);
-    registry.setActive(activeSessionId);
+    const session = createNewSession();
 
     return {
       content: [
@@ -285,6 +288,129 @@ server.tool(
           text: JSON.stringify({
             session_id: session.session.id,
             created_at: session.session.createdAt.toISOString(),
+          }),
+        },
+      ],
+    };
+  },
+);
+
+// -- lcm_session_list --------------------------------------------------------
+
+server.tool(
+  "lcm_session_list",
+  "List all persisted LCM sessions. Requires DATABASE_URL for Postgres persistence.",
+  {},
+  async () => {
+    if (!sharedSessionStore) {
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: JSON.stringify({
+              error: "Session persistence not configured (set DATABASE_URL)",
+              in_memory_sessions: Array.from(sessions.keys()),
+            }),
+          },
+        ],
+      };
+    }
+
+    const rows = await sharedSessionStore.list();
+    return {
+      content: [
+        {
+          type: "text" as const,
+          text: JSON.stringify({
+            sessions: rows.map((r) => ({
+              id: r.id,
+              created_at: r.createdAt.toISOString(),
+              active_token_count: r.activeTokenCount,
+            })),
+          }),
+        },
+      ],
+    };
+  },
+);
+
+// -- lcm_session_resume ------------------------------------------------------
+
+server.tool(
+  "lcm_session_resume",
+  "Resume a previously persisted session by its ID. The session becomes the active session.",
+  {
+    session_id: z.string().describe("The session ID to resume"),
+  },
+  async ({ session_id }) => {
+    // Already in memory?
+    if (sessions.has(session_id)) {
+      activeSessionId = session_id;
+      registry.setActive(session_id);
+      const session = sessions.get(session_id)!;
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: JSON.stringify({
+              session_id: session.session.id,
+              created_at: session.session.createdAt.toISOString(),
+              active_token_count: session.session.activeTokenCount,
+              source: "memory",
+            }),
+          },
+        ],
+      };
+    }
+
+    // Try to restore from Postgres
+    if (!sharedSessionStore || !sharedStore || !sharedDag) {
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: JSON.stringify({
+              error: "Session persistence not configured (set DATABASE_URL)",
+            }),
+          },
+        ],
+      };
+    }
+
+    const summarizer = createSummarizer(config.summarizer);
+    const restored = await LcmSession.restore(
+      session_id as SessionId,
+      tokenCounter,
+      summarizer,
+      config.compaction,
+      { store: sharedStore, dag: sharedDag, sessionStore: sharedSessionStore },
+    );
+
+    if (!restored) {
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: JSON.stringify({ error: `Session '${session_id}' not found` }),
+          },
+        ],
+      };
+    }
+
+    activeSessionId = restored.session.id;
+    sessions.set(activeSessionId, restored);
+    registry.register(restored);
+    registry.setActive(activeSessionId);
+
+    return {
+      content: [
+        {
+          type: "text" as const,
+          text: JSON.stringify({
+            session_id: restored.session.id,
+            created_at: restored.session.createdAt.toISOString(),
+            active_token_count: restored.session.activeTokenCount,
+            source: "postgres",
           }),
         },
       ],

@@ -200,6 +200,7 @@ import {
   EchoSummarizer,
   PgMessageStore,
   PgSummaryDag,
+  PgSessionStore,
   DEFAULT_COMPACTION_CONFIG,
 } from "bacon-lcm";
 
@@ -208,19 +209,31 @@ const tokenCounter = new NaiveTokenCounter();
 
 const store = new PgMessageStore(pool, tokenCounter);
 const dag = new PgSummaryDag(pool, tokenCounter);
+const sessionStore = new PgSessionStore(pool);
 
-// Optionally auto-migrate (safe to call repeatedly)
+// Auto-migrate (safe to call repeatedly)
 await store.migrate();
 await dag.migrate();
+await sessionStore.migrate();
 
+// Create a new session (auto-persisted on every addMessage)
 const session = new LcmSession(
   tokenCounter,
   new EchoSummarizer(),
   DEFAULT_COMPACTION_CONFIG,
-  { store, dag },   // <-- inject Postgres-backed stores
+  { store, dag, sessionStore },
 );
 
 await session.addMessage("user", "This will be persisted to Postgres");
+
+// Later — resume a session after a restart
+const resumed = await LcmSession.restore(
+  session.session.id,
+  tokenCounter,
+  new EchoSummarizer(),
+  DEFAULT_COMPACTION_CONFIG,
+  { store, dag, sessionStore },
+);
 ```
 
 All `MessageStore` and `SummaryDag` interface methods are natively async (`Promise`-returning). The in-memory and Postgres implementations share the same interface, so switching between them requires no code changes beyond the constructor.
@@ -402,6 +415,7 @@ src/
   pg/
     pg-store.ts     PostgreSQL message store
     pg-dag.ts       PostgreSQL summary DAG
+    pg-session.ts   PostgreSQL session persistence (save/restore/list)
     index.ts        Pg barrel export
     pg.test.ts      Postgres integration tests
 sql/

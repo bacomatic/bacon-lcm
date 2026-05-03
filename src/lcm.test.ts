@@ -254,4 +254,63 @@ describe("LcmSession", () => {
       config.thresholds.hardLimit,
     );
   });
+
+  it("persists and restores sessions via SessionPersistence", async () => {
+    const cfg = testConfig({ freshTailCount: 3 });
+    // Fake in-memory session store
+    const savedSessions = new Map<string, { id: any; createdAt: Date; activeTokenCount: number }>();
+    const fakeStore = {
+      save: async (s: any) => { savedSessions.set(s.id, { ...s }); },
+      load: async (id: any) => savedSessions.get(id),
+      list: async () => Array.from(savedSessions.values()),
+    };
+
+    const session = new LcmSession(counter, summarizer, cfg, {
+      sessionStore: fakeStore,
+    });
+
+    await session.addMessage("user", "Hello persistence");
+    await session.addMessage("assistant", "Got it");
+
+    // Session should have been auto-saved
+    const saved = savedSessions.get(session.session.id);
+    expect(saved).toBeDefined();
+    expect(saved!.activeTokenCount).toBeGreaterThan(0);
+
+    // Restore the session
+    const restored = await LcmSession.restore(
+      session.session.id,
+      counter,
+      summarizer,
+      cfg,
+      { store: session.store, dag: session.dag, sessionStore: fakeStore },
+    );
+
+    expect(restored).toBeDefined();
+    expect(restored!.session.id).toBe(session.session.id);
+    expect(restored!.session.activeTokenCount).toBeGreaterThan(0);
+
+    // Context should be the same
+    const ctx = await restored!.getContext();
+    expect(ctx.length).toBeGreaterThan(0);
+  });
+
+  it("restore returns undefined for non-existent session", async () => {
+    const cfg = testConfig();
+    const fakeStore = {
+      save: async () => {},
+      load: async () => undefined,
+      list: async () => [],
+    };
+
+    const result = await LcmSession.restore(
+      "nonexistent" as any,
+      counter,
+      summarizer,
+      cfg,
+      { store: new InMemoryMessageStore(counter), dag: new InMemorySummaryDag(counter), sessionStore: fakeStore },
+    );
+
+    expect(result).toBeUndefined();
+  });
 });

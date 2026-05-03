@@ -29,6 +29,18 @@ export interface LcmSessionOptions {
   sessionId?: SessionId;
   store?: MessageStore;
   dag?: SummaryDag;
+  /** If provided, session metadata is persisted on every addMessage(). */
+  sessionStore?: SessionPersistence;
+}
+
+/**
+ * Minimal interface for session persistence.
+ * Implemented by PgSessionStore — keeps LcmSession decoupled from pg.
+ */
+export interface SessionPersistence {
+  save(session: { id: SessionId; createdAt: Date; activeTokenCount: number }): Promise<void>;
+  load(id: SessionId): Promise<{ id: SessionId; createdAt: Date; activeTokenCount: number } | undefined>;
+  list(): Promise<Array<{ id: SessionId; createdAt: Date; activeTokenCount: number }>>;
 }
 
 export class LcmSession {
@@ -38,6 +50,7 @@ export class LcmSession {
   readonly compaction: CompactionEngine;
   readonly context: ContextAssembler;
   readonly retrieval: RetrievalService;
+  private readonly sessionStore?: SessionPersistence;
 
   constructor(
     private readonly tokenCounter: TokenCounter,
@@ -57,6 +70,7 @@ export class LcmSession {
       activeTokenCount: 0,
     };
 
+    this.sessionStore = options.sessionStore;
     this.store = options.store ?? new InMemoryMessageStore(tokenCounter);
     this.dag = options.dag ?? new InMemorySummaryDag(tokenCounter);
     this.compaction = new CompactionEngine(
@@ -68,6 +82,53 @@ export class LcmSession {
     );
     this.context = new ContextAssembler(this.store, this.dag, config);
     this.retrieval = new RetrievalService(this.store, this.dag);
+  }
+
+  // -----------------------------------------------------------------------
+  // Persistence
+  // -----------------------------------------------------------------------
+
+  /**
+   * Save session metadata to the session store.
+   * No-op if no sessionStore was provided.
+   */
+  async save(): Promise<void> {
+    if (!this.sessionStore) return;
+    await this.sessionStore.save(this.session);
+  }
+
+  /**
+   * Restore a previously persisted session.
+   *
+   * The session row is loaded from the sessionStore, and the existing
+   * messages/summaries in the shared store/dag are reused (they already
+   * reference this session's ID). The activeTokenCount is recomputed
+   * from the context assembler for accuracy.
+   */
+  static async restore(
+    sessionId: SessionId,
+    tokenCounter: TokenCounter,
+    summarizer: Summarizer,
+    config: CompactionConfig,
+    opts: Required<Pick<LcmSessionOptions, "store" | "dag" | "sessionStore">>,
+  ): Promise<LcmSession | undefined> {
+    const row = await opts.sessionStore.load(sessionId);
+    if (!row) return undefined;
+
+    const session = new LcmSession(tokenCounter, summarizer, config, {
+      sessionId: row.id,
+      store: opts.store,
+      dag: opts.dag,
+      sessionStore: opts.sessionStore,
+    });
+
+    // Restore metadata from the persisted row
+    (session.session as { createdAt: Date }).createdAt = row.createdAt;
+
+    // Recompute active token count from the actual context
+    session.session.activeTokenCount = await session.context.totalTokens(row.id);
+
+    return session;
   }
 
   // -----------------------------------------------------------------------
@@ -114,6 +175,11 @@ export class LcmSession {
       );
       this.session.activeTokenCount = await this.context.totalTokens(this.session.id);
       compacted = true;
+    }
+
+    // Auto-save session metadata if a session store is configured
+    if (this.sessionStore) {
+      await this.save();
     }
 
     return { message, compacted };

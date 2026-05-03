@@ -12,6 +12,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import pg from "pg";
 import { PgMessageStore } from "./pg-store.js";
 import { PgSummaryDag } from "./pg-dag.js";
+import { PgSessionStore } from "./pg-session.js";
 import { NaiveTokenCounter } from "../defaults.js";
 import { newSessionId } from "../ids.js";
 import type { MessageId, SessionId, SummaryId } from "../types.js";
@@ -25,6 +26,7 @@ const schemaName = `test_${Date.now()}`;
 let pool: pg.Pool;
 let store: PgMessageStore;
 let dag: PgSummaryDag;
+let sessionStore: PgSessionStore;
 const tokenCounter = new NaiveTokenCounter();
 
 const canConnect = async (): Promise<boolean> => {
@@ -51,9 +53,11 @@ describe.skipIf(!hasDb)("PostgreSQL persistence", () => {
 
     store = new PgMessageStore(pool, tokenCounter);
     dag = new PgSummaryDag(pool, tokenCounter);
+    sessionStore = new PgSessionStore(pool);
 
     await store.migrate();
     await dag.migrate();
+    await sessionStore.migrate();
   });
 
   afterAll(async () => {
@@ -180,6 +184,49 @@ describe.skipIf(!hasDb)("PostgreSQL persistence", () => {
     it("counts total nodes", async () => {
       const count = await dag.size();
       expect(count).toBeGreaterThanOrEqual(3);
+    });
+  });
+
+  // -- PgSessionStore ----------------------------------------------------------
+
+  describe("PgSessionStore", () => {
+    const sessionId = newSessionId();
+    const createdAt = new Date("2025-01-15T10:00:00Z");
+
+    it("saves a session", async () => {
+      await sessionStore.save({ id: sessionId, createdAt, activeTokenCount: 500 });
+      const loaded = await sessionStore.load(sessionId);
+      expect(loaded).toBeDefined();
+      expect(loaded!.id).toBe(sessionId);
+      expect(loaded!.createdAt.toISOString()).toBe(createdAt.toISOString());
+      expect(loaded!.activeTokenCount).toBe(500);
+    });
+
+    it("updates active_token_count on re-save", async () => {
+      await sessionStore.save({ id: sessionId, createdAt, activeTokenCount: 1200 });
+      const loaded = await sessionStore.load(sessionId);
+      expect(loaded!.activeTokenCount).toBe(1200);
+    });
+
+    it("lists sessions ordered by created_at desc", async () => {
+      const id2 = newSessionId();
+      await sessionStore.save({ id: id2, createdAt: new Date("2025-06-01T00:00:00Z"), activeTokenCount: 0 });
+
+      const rows = await sessionStore.list();
+      expect(rows.length).toBeGreaterThanOrEqual(2);
+      // Most recent first
+      expect(rows[0].id).toBe(id2);
+    });
+
+    it("returns undefined for non-existent session", async () => {
+      const loaded = await sessionStore.load("non-existent" as SessionId);
+      expect(loaded).toBeUndefined();
+    });
+
+    it("deletes a session", async () => {
+      await sessionStore.delete(sessionId);
+      const loaded = await sessionStore.load(sessionId);
+      expect(loaded).toBeUndefined();
     });
   });
 });
