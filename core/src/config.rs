@@ -6,6 +6,7 @@ use std::path::Path;
 
 /// Main LCM configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct LcmConfig {
     pub summarizer: SummarizerConfig,
     pub embedder: Option<EmbedderConfig>,
@@ -18,6 +19,7 @@ pub struct LcmConfig {
 
 /// Summarizer configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SummarizerConfig {
     pub provider: String,
     pub model: String,
@@ -29,6 +31,7 @@ pub struct SummarizerConfig {
 
 /// Embedder configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct EmbedderConfig {
     pub provider: String,
     pub model: String,
@@ -39,6 +42,7 @@ pub struct EmbedderConfig {
 
 /// Tokenizer configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TokenizerConfig {
     pub provider: Option<String>,
     pub model: Option<String>,
@@ -46,6 +50,7 @@ pub struct TokenizerConfig {
 
 /// Dashboard configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DashboardConfig {
     pub enabled: bool,
     pub port: Option<u16>,
@@ -53,6 +58,7 @@ pub struct DashboardConfig {
 
 /// Rust-specific configuration extensions
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RustSpecificConfig {
     pub max_concurrent_requests: Option<usize>,
     pub request_timeout_ms: Option<u64>,
@@ -64,6 +70,7 @@ pub struct RustSpecificConfig {
 
 /// Retry policy configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RetryPolicy {
     pub max_retries: usize,
     pub base_delay_ms: u64,
@@ -291,6 +298,67 @@ impl Default for DashboardConfig {
 mod tests {
     use super::*;
     use std::env;
+
+    #[test]
+    fn test_example_json_parses() {
+        // Locate the example config file relative to the workspace root
+        let manifest_dir = env!("CARGO_MANIFEST_DIR");
+        let example_path =
+            std::path::Path::new(manifest_dir).join("../bacon-lcm.config.example.json");
+
+        let config = LcmConfig::load_from_file(&example_path).expect(
+            "bacon-lcm.config.example.json should parse successfully with camelCase serde rename",
+        );
+
+        // Validate key fields were deserialized correctly
+        assert_eq!(config.summarizer.provider, "openai");
+        assert_eq!(config.summarizer.model, "gpt-4o-mini");
+        assert_eq!(
+            config.summarizer.base_url.as_deref(),
+            Some("https://api.openai.com/v1")
+        );
+        assert_eq!(config.summarizer.max_tokens, Some(1024));
+
+        let embedder = config.embedder.expect("embedder should be present");
+        assert_eq!(embedder.provider, "openai");
+        assert_eq!(embedder.model, "text-embedding-3-small");
+        assert_eq!(embedder.dimensions, Some(1536));
+
+        let tokenizer = config.tokenizer.expect("tokenizer should be present");
+        assert_eq!(tokenizer.provider.as_deref(), Some("tiktoken"));
+        assert_eq!(tokenizer.model.as_deref(), Some("gpt-4o"));
+
+        assert_eq!(config.compaction.thresholds.model_max_tokens, 128000);
+        assert_eq!(config.compaction.thresholds.soft_limit, 80000);
+        assert_eq!(config.compaction.thresholds.hard_limit, 110000);
+        assert_eq!(config.compaction.fresh_tail_count, 10);
+        assert_eq!(config.compaction.leaf_group_size, 20);
+        assert_eq!(config.compaction.condensed_group_size, 10);
+        assert!(config.compaction.parallel_compaction);
+        assert_eq!(config.compaction.max_concurrent_compactions, 4);
+
+        assert_eq!(
+            config.database_url.as_deref(),
+            Some("postgres://localhost:5432/bacon_lcm")
+        );
+
+        let dashboard = config.dashboard.expect("dashboard should be present");
+        assert!(dashboard.enabled);
+        assert_eq!(dashboard.port, Some(3333));
+
+        let rust = config.rust.expect("rust should be present");
+        assert_eq!(rust.max_concurrent_requests, Some(10));
+        assert_eq!(rust.request_timeout_ms, Some(30000));
+        assert_eq!(rust.parallel_compaction, Some(true));
+        assert_eq!(rust.compaction_workers, Some(4));
+        assert_eq!(rust.memory_limit_mb, Some(512));
+
+        let retry = rust.retry_policy.expect("retryPolicy should be present");
+        assert_eq!(retry.max_retries, 3);
+        assert_eq!(retry.base_delay_ms, 1000);
+        assert_eq!(retry.max_delay_ms, 30000);
+        assert_eq!(retry.exponential_base, 2.0);
+    }
 
     #[test]
     fn test_default_config() {

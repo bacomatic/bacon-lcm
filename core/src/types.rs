@@ -85,7 +85,7 @@ impl ContextItem {
             ContextItem::Summary(summary) => summary.token_count,
         }
     }
-    
+
     pub fn timestamp(&self) -> DateTime<Utc> {
         match self {
             ContextItem::Message(msg) => msg.timestamp,
@@ -96,6 +96,7 @@ impl ContextItem {
 
 /// Configuration for compaction thresholds
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ThresholdConfig {
     pub model_max_tokens: usize,
     pub soft_limit: usize,
@@ -104,6 +105,7 @@ pub struct ThresholdConfig {
 
 /// Full compaction configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CompactionConfig {
     pub thresholds: ThresholdConfig,
     pub fresh_tail_count: usize,
