@@ -53,44 +53,7 @@ export class PgMessageStore implements MessageStore {
     private readonly tokenCounter: TokenCounter,
   ) {}
 
-  append(
-    sessionId: SessionId,
-    role: MessageRole,
-    content: string,
-    metadata?: Record<string, unknown>,
-  ): Message {
-    // Synchronous interface — we enqueue the insert and return immediately.
-    // The actual write happens via appendAsync which should be preferred.
-    // For the sync path we compute optimistically and fire-and-forget the INSERT.
-    const id = newMessageId();
-    const tokenCount = this.tokenCounter.count(content);
-    const createdAt = new Date();
-
-    const message: Message = {
-      id,
-      sessionId,
-      role,
-      content,
-      sequenceNumber: -1, // will be set by DB; see appendAsync
-      tokenCount,
-      createdAt,
-      metadata,
-    };
-
-    // Fire and forget — not ideal but preserves the sync interface.
-    // Use appendAsync for correctness.
-    this._insertAsync(message).catch((err) => {
-      console.error("PgMessageStore: fire-and-forget insert failed:", err);
-    });
-
-    return message;
-  }
-
-  /**
-   * Async append — preferred over the sync `append` method.
-   * Returns the message with the correct sequence number assigned by the DB.
-   */
-  async appendAsync(
+  async append(
     sessionId: SessionId,
     role: MessageRole,
     content: string,
@@ -121,14 +84,7 @@ export class PgMessageStore implements MessageStore {
     };
   }
 
-  get(id: MessageId): Message | undefined {
-    // Sync facade — see getAsync
-    throw new Error(
-      "PgMessageStore.get() is not supported synchronously. Use getAsync().",
-    );
-  }
-
-  async getAsync(id: MessageId): Promise<Message | undefined> {
+  async get(id: MessageId): Promise<Message | undefined> {
     const { rows } = await this.pool.query<MessageRow>(
       "SELECT * FROM lcm_messages WHERE id = $1",
       [id],
@@ -136,13 +92,7 @@ export class PgMessageStore implements MessageStore {
     return rows.length > 0 ? rowToMessage(rows[0]) : undefined;
   }
 
-  getBySession(sessionId: SessionId): Message[] {
-    throw new Error(
-      "PgMessageStore.getBySession() is not supported synchronously. Use getBySessionAsync().",
-    );
-  }
-
-  async getBySessionAsync(sessionId: SessionId): Promise<Message[]> {
+  async getBySession(sessionId: SessionId): Promise<Message[]> {
     const { rows } = await this.pool.query<MessageRow>(
       "SELECT * FROM lcm_messages WHERE session_id = $1 ORDER BY sequence_number",
       [sessionId],
@@ -150,13 +100,7 @@ export class PgMessageStore implements MessageStore {
     return rows.map(rowToMessage);
   }
 
-  getRange(sessionId: SessionId, from: number, to: number): Message[] {
-    throw new Error(
-      "PgMessageStore.getRange() is not supported synchronously. Use getRangeAsync().",
-    );
-  }
-
-  async getRangeAsync(
+  async getRange(
     sessionId: SessionId,
     from: number,
     to: number,
@@ -168,13 +112,7 @@ export class PgMessageStore implements MessageStore {
     return rows.map(rowToMessage);
   }
 
-  getMany(ids: MessageId[]): Message[] {
-    throw new Error(
-      "PgMessageStore.getMany() is not supported synchronously. Use getManyAsync().",
-    );
-  }
-
-  async getManyAsync(ids: MessageId[]): Promise<Message[]> {
+  async getMany(ids: MessageId[]): Promise<Message[]> {
     if (ids.length === 0) return [];
     const { rows } = await this.pool.query<MessageRow>(
       "SELECT * FROM lcm_messages WHERE id = ANY($1) ORDER BY sequence_number",
@@ -183,39 +121,11 @@ export class PgMessageStore implements MessageStore {
     return rows.map(rowToMessage);
   }
 
-  size(): number {
-    throw new Error(
-      "PgMessageStore.size() is not supported synchronously. Use sizeAsync().",
-    );
-  }
-
-  async sizeAsync(): Promise<number> {
+  async size(): Promise<number> {
     const { rows } = await this.pool.query<{ count: string }>(
       "SELECT COUNT(*) as count FROM lcm_messages",
     );
     return parseInt(rows[0].count, 10);
-  }
-
-  // -----------------------------------------------------------------------
-  // Internal
-  // -----------------------------------------------------------------------
-
-  private async _insertAsync(message: Message): Promise<void> {
-    await this.pool.query(
-      `INSERT INTO lcm_messages (id, session_id, role, content, sequence_number, token_count, created_at, metadata)
-       VALUES ($1, $2, $3, $4,
-         COALESCE((SELECT MAX(sequence_number) FROM lcm_messages WHERE session_id = $2), 0) + 1,
-         $5, $6, $7)`,
-      [
-        message.id,
-        message.sessionId,
-        message.role,
-        message.content,
-        message.tokenCount,
-        message.createdAt,
-        message.metadata ? JSON.stringify(message.metadata) : null,
-      ],
-    );
   }
 
   // -----------------------------------------------------------------------

@@ -67,48 +67,48 @@ describe.skipIf(!hasDb)("PostgreSQL persistence", () => {
     const sessionId = newSessionId();
 
     it("appends and retrieves a message", async () => {
-      const msg = await store.appendAsync(sessionId, "user", "Hello from Postgres");
+      const msg = await store.append(sessionId, "user", "Hello from Postgres");
 
       expect(msg.id).toBeDefined();
       expect(msg.sequenceNumber).toBe(1);
       expect(msg.role).toBe("user");
       expect(msg.tokenCount).toBeGreaterThan(0);
 
-      const fetched = await store.getAsync(msg.id);
+      const fetched = await store.get(msg.id);
       expect(fetched).toBeDefined();
       expect(fetched!.content).toBe("Hello from Postgres");
     });
 
     it("auto-increments sequence numbers", async () => {
-      const msg2 = await store.appendAsync(sessionId, "assistant", "Hi there!");
+      const msg2 = await store.append(sessionId, "assistant", "Hi there!");
       expect(msg2.sequenceNumber).toBe(2);
 
-      const msg3 = await store.appendAsync(sessionId, "user", "Follow-up question");
+      const msg3 = await store.append(sessionId, "user", "Follow-up question");
       expect(msg3.sequenceNumber).toBe(3);
     });
 
     it("retrieves by session", async () => {
-      const msgs = await store.getBySessionAsync(sessionId);
+      const msgs = await store.getBySession(sessionId);
       expect(msgs.length).toBe(3);
       expect(msgs[0].sequenceNumber).toBe(1);
       expect(msgs[2].sequenceNumber).toBe(3);
     });
 
     it("retrieves a range", async () => {
-      const range = await store.getRangeAsync(sessionId, 2, 3);
+      const range = await store.getRange(sessionId, 2, 3);
       expect(range.length).toBe(2);
       expect(range[0].sequenceNumber).toBe(2);
     });
 
     it("retrieves many by IDs", async () => {
-      const all = await store.getBySessionAsync(sessionId);
+      const all = await store.getBySession(sessionId);
       const ids = [all[0].id, all[2].id];
-      const result = await store.getManyAsync(ids);
+      const result = await store.getMany(ids);
       expect(result.length).toBe(2);
     });
 
     it("counts total messages", async () => {
-      const count = await store.sizeAsync();
+      const count = await store.size();
       expect(count).toBeGreaterThanOrEqual(3);
     });
   });
@@ -119,7 +119,7 @@ describe.skipIf(!hasDb)("PostgreSQL persistence", () => {
     const sessionId = newSessionId();
 
     it("adds and retrieves a summary node", async () => {
-      const node = await dag.addAsync(
+      const node = await dag.add(
         sessionId,
         "leaf",
         "Summary of first few messages",
@@ -132,29 +132,29 @@ describe.skipIf(!hasDb)("PostgreSQL persistence", () => {
       expect(node.isActive).toBe(true);
       expect(node.isArchived).toBe(false);
 
-      const fetched = await dag.getAsync(node.id);
+      const fetched = await dag.get(node.id);
       expect(fetched).toBeDefined();
       expect(fetched!.content).toBe("Summary of first few messages");
     });
 
     it("lists active nodes", async () => {
-      const active = await dag.getActiveAsync(sessionId);
+      const active = await dag.getActive(sessionId);
       expect(active.length).toBe(1);
     });
 
     it("archives a node", async () => {
-      const active = await dag.getActiveAsync(sessionId);
-      await dag.archiveAsync(active[0].id);
+      const active = await dag.getActive(sessionId);
+      await dag.archive(active[0].id);
 
-      const stillActive = await dag.getActiveAsync(sessionId);
+      const stillActive = await dag.getActive(sessionId);
       expect(stillActive.length).toBe(0);
 
-      const archived = await dag.getArchivedAsync(sessionId);
+      const archived = await dag.getArchived(sessionId);
       expect(archived.length).toBe(1);
     });
 
     it("expands to message IDs via recursive CTE", async () => {
-      const leaf = await dag.addAsync(
+      const leaf = await dag.add(
         sessionId,
         "leaf",
         "Leaf summary",
@@ -162,7 +162,7 @@ describe.skipIf(!hasDb)("PostgreSQL persistence", () => {
         [],
       );
 
-      const condensed = await dag.addAsync(
+      const condensed = await dag.add(
         sessionId,
         "condensed",
         "Condensed summary",
@@ -170,7 +170,7 @@ describe.skipIf(!hasDb)("PostgreSQL persistence", () => {
         [leaf.id],
       );
 
-      const msgIds = await dag.expandToMessageIdsAsync(condensed.id);
+      const msgIds = await dag.expandToMessageIds(condensed.id);
       expect(msgIds).toContain("msg-10");
       expect(msgIds).toContain("msg-11");
       expect(msgIds).toContain("msg-12");
@@ -178,7 +178,7 @@ describe.skipIf(!hasDb)("PostgreSQL persistence", () => {
     });
 
     it("counts total nodes", async () => {
-      const count = await dag.sizeAsync();
+      const count = await dag.size();
       expect(count).toBeGreaterThanOrEqual(3);
     });
   });

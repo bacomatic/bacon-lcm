@@ -33,14 +33,14 @@ function testConfig(overrides?: Partial<CompactionConfig>): CompactionConfig {
   };
 }
 
-function addMessages(
+async function addMessages(
   store: InMemoryMessageStore,
   sessionId: SessionId,
   count: number,
   contentSize = 100,
-): void {
+): Promise<void> {
   for (let i = 0; i < count; i++) {
-    store.append(
+    await store.append(
       sessionId,
       i % 2 === 0 ? "user" : "assistant",
       `Message ${i}: ${"x".repeat(contentSize)}`,
@@ -53,117 +53,117 @@ function addMessages(
 // ---------------------------------------------------------------------------
 
 describe("InMemoryMessageStore", () => {
-  it("appends and retrieves messages", () => {
+  it("appends and retrieves messages", async () => {
     const store = new InMemoryMessageStore(counter);
     const sid = newSessionId();
 
-    const m1 = store.append(sid, "user", "Hello");
-    const m2 = store.append(sid, "assistant", "Hi there");
+    const m1 = await store.append(sid, "user", "Hello");
+    const m2 = await store.append(sid, "assistant", "Hi there");
 
-    expect(store.size()).toBe(2);
-    expect(store.get(m1.id)).toBe(m1);
-    expect(store.getBySession(sid)).toEqual([m1, m2]);
+    expect(await store.size()).toBe(2);
+    expect(await store.get(m1.id)).toBe(m1);
+    expect(await store.getBySession(sid)).toEqual([m1, m2]);
     expect(m1.sequenceNumber).toBe(1);
     expect(m2.sequenceNumber).toBe(2);
   });
 
-  it("returns messages in range", () => {
+  it("returns messages in range", async () => {
     const store = new InMemoryMessageStore(counter);
     const sid = newSessionId();
 
-    for (let i = 0; i < 5; i++) store.append(sid, "user", `msg ${i}`);
-    const range = store.getRange(sid, 2, 4);
+    for (let i = 0; i < 5; i++) await store.append(sid, "user", `msg ${i}`);
+    const range = await store.getRange(sid, 2, 4);
 
     expect(range.length).toBe(3);
     expect(range[0].sequenceNumber).toBe(2);
     expect(range[2].sequenceNumber).toBe(4);
   });
 
-  it("counts tokens via the injected counter", () => {
+  it("counts tokens via the injected counter", async () => {
     const store = new InMemoryMessageStore(counter);
     const sid = newSessionId();
 
-    const m = store.append(sid, "user", "Hello world!"); // 12 chars => 3 tokens
+    const m = await store.append(sid, "user", "Hello world!"); // 12 chars => 3 tokens
     expect(m.tokenCount).toBe(3);
   });
 });
 
 describe("InMemorySummaryDag", () => {
-  it("adds and retrieves summary nodes", () => {
+  it("adds and retrieves summary nodes", async () => {
     const dag = new InMemorySummaryDag(counter);
     const sid = newSessionId();
 
     const store = new InMemoryMessageStore(counter);
-    const m1 = store.append(sid, "user", "Hello");
-    const m2 = store.append(sid, "assistant", "World");
+    const m1 = await store.append(sid, "user", "Hello");
+    const m2 = await store.append(sid, "assistant", "World");
 
-    const node = dag.add(sid, "leaf", "Summary of hello/world", [m1.id, m2.id], []);
-    expect(dag.size()).toBe(1);
-    expect(dag.get(node.id)).toBe(node);
-    expect(dag.getActive(sid)).toEqual([node]);
+    const node = await dag.add(sid, "leaf", "Summary of hello/world", [m1.id, m2.id], []);
+    expect(await dag.size()).toBe(1);
+    expect(await dag.get(node.id)).toBe(node);
+    expect(await dag.getActive(sid)).toEqual([node]);
   });
 
-  it("archives nodes", () => {
+  it("archives nodes", async () => {
     const dag = new InMemorySummaryDag(counter);
     const sid = newSessionId();
-    const node = dag.add(sid, "leaf", "summary", [], []);
+    const node = await dag.add(sid, "leaf", "summary", [], []);
 
-    dag.archive(node.id);
+    await dag.archive(node.id);
 
-    expect(dag.getActive(sid)).toEqual([]);
-    expect(dag.getArchived(sid)).toEqual([node]);
+    expect(await dag.getActive(sid)).toEqual([]);
+    expect(await dag.getArchived(sid)).toEqual([node]);
   });
 
-  it("expands lineage to message IDs", () => {
+  it("expands lineage to message IDs", async () => {
     const dag = new InMemorySummaryDag(counter);
     const sid = newSessionId();
     const store = new InMemoryMessageStore(counter);
 
-    const m1 = store.append(sid, "user", "a");
-    const m2 = store.append(sid, "user", "b");
-    const m3 = store.append(sid, "user", "c");
+    const m1 = await store.append(sid, "user", "a");
+    const m2 = await store.append(sid, "user", "b");
+    const m3 = await store.append(sid, "user", "c");
 
-    const leaf1 = dag.add(sid, "leaf", "sum1", [m1.id], []);
-    const leaf2 = dag.add(sid, "leaf", "sum2", [m2.id, m3.id], []);
-    const condensed = dag.add(sid, "condensed", "condensed", [], [leaf1.id, leaf2.id]);
+    const leaf1 = await dag.add(sid, "leaf", "sum1", [m1.id], []);
+    const leaf2 = await dag.add(sid, "leaf", "sum2", [m2.id, m3.id], []);
+    const condensed = await dag.add(sid, "condensed", "condensed", [], [leaf1.id, leaf2.id]);
 
-    const expanded = dag.expandToMessageIds(condensed.id);
+    const expanded = await dag.expandToMessageIds(condensed.id);
     expect(expanded.sort()).toEqual([m1.id, m2.id, m3.id].sort());
   });
 });
 
 describe("ContextAssembler", () => {
-  it("returns raw messages when no summaries exist", () => {
+  it("returns raw messages when no summaries exist", async () => {
     const config = testConfig();
     const store = new InMemoryMessageStore(counter);
     const dag = new InMemorySummaryDag(counter);
     const sid = newSessionId();
 
-    store.append(sid, "user", "Hello");
-    store.append(sid, "assistant", "Hi");
+    await store.append(sid, "user", "Hello");
+    await store.append(sid, "assistant", "Hi");
 
     const assembler = new ContextAssembler(store, dag, config);
-    const items = assembler.assemble(sid);
+    const items = await assembler.assemble(sid);
 
     expect(items.length).toBe(2);
     expect(items.every((i) => i.kind === "message")).toBe(true);
   });
 
-  it("includes summaries followed by fresh tail", () => {
+  it("includes summaries followed by fresh tail", async () => {
     const config = testConfig({ freshTailCount: 2 });
     const store = new InMemoryMessageStore(counter);
     const dag = new InMemorySummaryDag(counter);
     const sid = newSessionId();
 
-    const m1 = store.append(sid, "user", "old1");
-    const m2 = store.append(sid, "assistant", "old2");
-    store.append(sid, "user", "recent1");
-    store.append(sid, "assistant", "recent2");
+    const m1 = await store.append(sid, "user", "old1");
+    const m2 = await store.append(sid, "assistant", "old2");
+    await store.append(sid, "user", "recent1");
+    await store.append(sid, "assistant", "recent2");
 
-    dag.add(sid, "leaf", "summary of old", [m1.id, m2.id], []);
+    await dag.add(sid, "leaf", "summary of old", [m1.id, m2.id], []);
 
     const assembler = new ContextAssembler(store, dag, config);
-    const items = assembler.assemble(sid);
+    const items = await assembler.assemble(sid);
 
     expect(items[0].kind).toBe("summary");
     expect(items.filter((i) => i.kind === "message").length).toBe(2);
@@ -178,7 +178,7 @@ describe("CompactionEngine", () => {
     const engine = new CompactionEngine(store, dag, summarizer, counter, config);
     const sid = newSessionId();
 
-    store.append(sid, "user", "short");
+    await store.append(sid, "user", "short");
 
     const result = await engine.compact(sid, counter.count("short"));
     expect(result.levelReached).toBe(0);
@@ -193,10 +193,9 @@ describe("CompactionEngine", () => {
     const sid = newSessionId();
 
     // Each message ~500 chars ≈ 125 tokens; 10 msgs ≈ 1250 tokens (well above softLimit=400)
-    addMessages(store, sid, 10, 500);
+    await addMessages(store, sid, 10, 500);
 
-    const tokenCount = store
-      .getBySession(sid)
+    const tokenCount = (await store.getBySession(sid))
       .reduce((s, m) => s + m.tokenCount, 0);
 
     const result = await engine.compact(sid, tokenCount);
@@ -206,21 +205,21 @@ describe("CompactionEngine", () => {
 });
 
 describe("RetrievalService", () => {
-  it("describes and expands summary nodes", () => {
+  it("describes and expands summary nodes", async () => {
     const store = new InMemoryMessageStore(counter);
     const dag = new InMemorySummaryDag(counter);
     const retrieval = new RetrievalService(store, dag);
     const sid = newSessionId();
 
-    const m1 = store.append(sid, "user", "hello world");
-    const m2 = store.append(sid, "assistant", "hi there");
-    const node = dag.add(sid, "leaf", "summary", [m1.id, m2.id], []);
+    const m1 = await store.append(sid, "user", "hello world");
+    const m2 = await store.append(sid, "assistant", "hi there");
+    const node = await dag.add(sid, "leaf", "summary", [m1.id, m2.id], []);
 
-    const desc = retrieval.describe(node.id);
+    const desc = await retrieval.describe(node.id);
     expect(desc).toBeDefined();
     expect(desc!.totalReachableMessages).toBe(2);
 
-    const expanded = retrieval.expand(node.id);
+    const expanded = await retrieval.expand(node.id);
     expect(expanded.length).toBe(2);
     expect(expanded[0].content).toBe("hello world");
   });
@@ -235,7 +234,7 @@ describe("LcmSession", () => {
     await session.addMessage("user", "Hello!");
     await session.addMessage("assistant", "How can I help?");
 
-    expect(session.getContext().length).toBe(2);
+    expect((await session.getContext()).length).toBe(2);
 
     // Add many more to trigger compaction
     for (let i = 0; i < 20; i++) {
@@ -245,13 +244,13 @@ describe("LcmSession", () => {
       );
     }
 
-    const ctx = session.getContext();
+    const ctx = await session.getContext();
     const hasSummary = ctx.some((item) => item.kind === "summary");
 
     // With enough messages, we should see compaction kick in
-    expect(session.store.size()).toBe(22);
+    expect(await session.store.size()).toBe(22);
     // Token count should be managed
-    expect(session.getTokenCount()).toBeLessThanOrEqual(
+    expect(await session.getTokenCount()).toBeLessThanOrEqual(
       config.thresholds.hardLimit,
     );
   });

@@ -71,19 +71,19 @@ export class CompactionEngine {
 
     // Level 1 — Leaf compaction
     let result = await this.leafCompact(sessionId);
-    if (this.activeTokens(sessionId) <= hardLimit && result.created.length > 0) {
+    if ((await this.activeTokens(sessionId)) <= hardLimit && result.created.length > 0) {
       return { ...result, levelReached: 1 };
     }
 
     // Level 2 — Condensed compaction
     const condensedResult = await this.condensedCompact(sessionId);
     result = this.mergeResults(result, condensedResult);
-    if (this.activeTokens(sessionId) <= hardLimit) {
+    if ((await this.activeTokens(sessionId)) <= hardLimit) {
       return { ...result, levelReached: 2 };
     }
 
     // Level 3 — Emergency deterministic fallback
-    const emergencyResult = this.emergencyCompact(sessionId);
+    const emergencyResult = await this.emergencyCompact(sessionId);
     result = this.mergeResults(result, emergencyResult);
     return { ...result, levelReached: 3 };
   }
@@ -107,15 +107,16 @@ export class CompactionEngine {
   // -----------------------------------------------------------------------
 
   private async leafCompact(sessionId: SessionId): Promise<CompactionResult> {
-    const messages = this.store.getBySession(sessionId);
+    const messages = await this.store.getBySession(sessionId);
     const { freshTailCount, leafMinFanout, leafChunkTokens } = this.config;
 
     // Determine which messages are eligible for compaction:
     // all except the fresh tail and any already summarized
-    const activeSummaries = this.dag.getActive(sessionId);
-    const summarizedMsgIds = new Set(
-      activeSummaries.flatMap((s) => this.dag.expandToMessageIds(s.id)),
+    const activeSummaries = await this.dag.getActive(sessionId);
+    const expandedIds = await Promise.all(
+      activeSummaries.map((s) => this.dag.expandToMessageIds(s.id)),
     );
+    const summarizedMsgIds = new Set(expandedIds.flat());
 
     const eligible = messages
       .slice(0, Math.max(0, messages.length - freshTailCount))
@@ -134,7 +135,7 @@ export class CompactionEngine {
     for (const chunk of chunks) {
       const texts = chunk.map((m) => `[${m.role}] ${m.content}`);
       const summaryText = await this.summarizer.summarize(texts, "leaf");
-      const node = this.dag.add(
+      const node = await this.dag.add(
         sessionId,
         "leaf",
         summaryText,
@@ -157,8 +158,7 @@ export class CompactionEngine {
   private async condensedCompact(
     sessionId: SessionId,
   ): Promise<CompactionResult> {
-    const activeLeaves = this.dag
-      .getActive(sessionId)
+    const activeLeaves = (await this.dag.getActive(sessionId))
       .filter((n) => n.level === "leaf");
 
     const { condensedMinFanout, condensedTargetTokens } = this.config;
@@ -184,11 +184,12 @@ export class CompactionEngine {
       const texts = chunk.map((n) => n.content);
       const summaryText = await this.summarizer.summarize(texts, "condensed");
 
-      const sourceMessageIds = chunk.flatMap((n) =>
-        this.dag.expandToMessageIds(n.id),
+      const expandedMsgIds = await Promise.all(
+        chunk.map((n) => this.dag.expandToMessageIds(n.id)),
       );
+      const sourceMessageIds = expandedMsgIds.flat();
 
-      const node = this.dag.add(
+      const node = await this.dag.add(
         sessionId,
         "condensed",
         summaryText,
@@ -199,7 +200,7 @@ export class CompactionEngine {
 
       // Archive the consumed leaf nodes
       for (const leaf of chunk) {
-        this.dag.archive(leaf.id);
+        await this.dag.archive(leaf.id);
         archived.push(leaf);
       }
 
@@ -214,8 +215,8 @@ export class CompactionEngine {
   // Level 3 — Emergency deterministic fallback
   // -----------------------------------------------------------------------
 
-  private emergencyCompact(sessionId: SessionId): CompactionResult {
-    const activeSummaries = this.dag.getActive(sessionId);
+  private async emergencyCompact(sessionId: SessionId): Promise<CompactionResult> {
+    const activeSummaries = await this.dag.getActive(sessionId);
     if (activeSummaries.length === 0) {
       return { created: [], archived: [], tokensReclaimed: 0, levelReached: 3 };
     }
@@ -228,10 +229,10 @@ export class CompactionEngine {
     );
 
     for (const node of sorted) {
-      if (this.activeTokens(sessionId) <= this.config.thresholds.hardLimit) {
+      if ((await this.activeTokens(sessionId)) <= this.config.thresholds.hardLimit) {
         break;
       }
-      this.dag.archive(node.id);
+      await this.dag.archive(node.id);
       archived.push(node);
       tokensReclaimed += node.tokenCount;
     }
@@ -241,11 +242,14 @@ export class CompactionEngine {
     if (archived.length > 0) {
       const stub = `[Emergency compaction: ${archived.length} summary nodes archived. ` +
         `Use lcm_describe / lcm_expand to retrieve original content.]`;
-      const node = this.dag.add(
+      const expandedIds = await Promise.all(
+        archived.map((n) => this.dag.expandToMessageIds(n.id)),
+      );
+      const node = await this.dag.add(
         sessionId,
         "emergency",
         stub,
-        archived.flatMap((n) => this.dag.expandToMessageIds(n.id)),
+        expandedIds.flat(),
         archived.map((n) => n.id),
       );
       created.push(node);
@@ -259,12 +263,13 @@ export class CompactionEngine {
   // -----------------------------------------------------------------------
 
   /** Estimate current active token count for a session. */
-  private activeTokens(sessionId: SessionId): number {
-    const messages = this.store.getBySession(sessionId);
-    const activeSummaries = this.dag.getActive(sessionId);
-    const summarizedMsgIds = new Set(
-      activeSummaries.flatMap((s) => this.dag.expandToMessageIds(s.id)),
+  private async activeTokens(sessionId: SessionId): Promise<number> {
+    const messages = await this.store.getBySession(sessionId);
+    const activeSummaries = await this.dag.getActive(sessionId);
+    const expandedIds = await Promise.all(
+      activeSummaries.map((s) => this.dag.expandToMessageIds(s.id)),
     );
+    const summarizedMsgIds = new Set(expandedIds.flat());
 
     const rawTokens = messages
       .filter((m) => !summarizedMsgIds.has(m.id))

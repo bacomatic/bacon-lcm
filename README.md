@@ -140,7 +140,25 @@ const session = new LcmSession(
 await session.addMessage("user", "This will be persisted to Postgres");
 ```
 
-The Postgres stores expose `*Async` variants of every method (e.g. `appendAsync`, `getAsync`, `getBySessionAsync`) for proper async/await usage. The sync interface methods are implemented for interface compatibility but will throw for read operations — use the async versions in production.
+All `MessageStore` and `SummaryDag` interface methods are natively async (`Promise`-returning). The in-memory and Postgres implementations share the same interface, so switching between them requires no code changes beyond the constructor.
+
+### MCP Server with Postgres
+
+Set `DATABASE_URL` when starting the MCP server for persistent cross-session memory:
+
+```json
+{
+  "mcpServers": {
+    "bacon-lcm": {
+      "command": "node",
+      "args": ["/path/to/bacon-lcm/dist/mcp-server.js"],
+      "env": { "DATABASE_URL": "postgres://localhost:5432/bacon_lcm" }
+    }
+  }
+}
+```
+
+Without `DATABASE_URL`, the MCP server falls back to in-memory storage.
 
 ## Integration: MCP Server
 

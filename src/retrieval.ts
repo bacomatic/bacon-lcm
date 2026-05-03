@@ -43,11 +43,11 @@ export class RetrievalService {
   /**
    * Describe a summary node's lineage metadata without expanding it.
    */
-  describe(id: SummaryId): DescribeResult | undefined {
-    const node = this.dag.get(id);
+  async describe(id: SummaryId): Promise<DescribeResult | undefined> {
+    const node = await this.dag.get(id);
     if (!node) return undefined;
 
-    const reachableIds = this.dag.expandToMessageIds(id);
+    const reachableIds = await this.dag.expandToMessageIds(id);
 
     return {
       id: node.id,
@@ -66,21 +66,21 @@ export class RetrievalService {
    * Expand a summary node to its original verbatim messages.
    * Follows the full lineage chain through the DAG.
    */
-  expand(id: SummaryId): Message[] {
-    const messageIds = this.dag.expandToMessageIds(id);
-    return this.store
-      .getMany(messageIds)
-      .sort((a, b) => a.sequenceNumber - b.sequenceNumber);
+  async expand(id: SummaryId): Promise<Message[]> {
+    const messageIds = await this.dag.expandToMessageIds(id);
+    const messages = await this.store.getMany(messageIds);
+    return messages.sort((a, b) => a.sequenceNumber - b.sequenceNumber);
   }
 
   /**
    * List all archived summary nodes for a session, suitable for
    * presenting as retrieval cues in pre-response hooks.
    */
-  listArchived(sessionId: string): DescribeResult[] {
-    const archived = this.dag.getArchived(sessionId as any);
-    return archived
-      .map((node) => this.describe(node.id))
-      .filter((d): d is DescribeResult => d !== undefined);
+  async listArchived(sessionId: string): Promise<DescribeResult[]> {
+    const archived = await this.dag.getArchived(sessionId as any);
+    const descriptions = await Promise.all(
+      archived.map((node) => this.describe(node.id)),
+    );
+    return descriptions.filter((d): d is DescribeResult => d !== undefined);
   }
 }

@@ -15,22 +15,52 @@
  */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import pg from "pg";
 import { z } from "zod";
 import {
   DEFAULT_COMPACTION_CONFIG,
   EchoSummarizer,
   NaiveTokenCounter,
 } from "./defaults.js";
+import { PgMessageStore } from "./pg/pg-store.js";
+import { PgSummaryDag } from "./pg/pg-dag.js";
 import { LcmSession } from "./session.js";
-import type { CompactionConfig, SessionId, SummaryId } from "./types.js";
+import type { MessageStore } from "./store.js";
+import type { SummaryDag } from "./dag.js";
+import type { CompactionConfig, SummaryId } from "./types.js";
 
 // ---------------------------------------------------------------------------
-// Session registry (in-memory; one MCP server can manage multiple sessions)
+// Persistence setup — uses Postgres if DATABASE_URL is set, else in-memory
+// ---------------------------------------------------------------------------
+
+const DATABASE_URL = process.env.DATABASE_URL;
+const tokenCounter = new NaiveTokenCounter();
+const summarizer = new EchoSummarizer();
+
+let pool: pg.Pool | null = null;
+let sharedStore: MessageStore | undefined;
+let sharedDag: SummaryDag | undefined;
+
+async function initPersistence(): Promise<void> {
+  if (DATABASE_URL) {
+    pool = new pg.Pool({ connectionString: DATABASE_URL });
+    const pgStore = new PgMessageStore(pool, tokenCounter);
+    const pgDag = new PgSummaryDag(pool, tokenCounter);
+    await pgStore.migrate();
+    await pgDag.migrate();
+    sharedStore = pgStore;
+    sharedDag = pgDag;
+    console.error(`bacon-lcm MCP: using Postgres (${DATABASE_URL})`);
+  } else {
+    console.error("bacon-lcm MCP: using in-memory storage (set DATABASE_URL for persistence)");
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Session registry
 // ---------------------------------------------------------------------------
 
 const sessions = new Map<string, LcmSession>();
-const tokenCounter = new NaiveTokenCounter();
-const summarizer = new EchoSummarizer();
 
 function getOrCreateConfig(): CompactionConfig {
   return { ...DEFAULT_COMPACTION_CONFIG };
@@ -40,7 +70,12 @@ let activeSessionId: string | null = null;
 
 function getActiveSession(): LcmSession {
   if (!activeSessionId || !sessions.has(activeSessionId)) {
-    const session = new LcmSession(tokenCounter, summarizer, getOrCreateConfig());
+    const session = new LcmSession(
+      tokenCounter,
+      summarizer,
+      getOrCreateConfig(),
+      { store: sharedStore, dag: sharedDag },
+    );
     activeSessionId = session.session.id;
     sessions.set(activeSessionId, session);
   }
@@ -82,7 +117,7 @@ server.tool(
             sequence_number: message.sequenceNumber,
             token_count: message.tokenCount,
             compacted,
-            active_context_tokens: session.getTokenCount(),
+            active_context_tokens: await session.getTokenCount(),
           }),
         },
       ],
@@ -103,7 +138,7 @@ server.tool(
       ? sessions.get(session_id)!
       : getActiveSession();
 
-    const ctx = session.getContext();
+    const ctx = await session.getContext();
     const items = ctx.map((item) => {
       if (item.kind === "message") {
         return {
@@ -132,7 +167,7 @@ server.tool(
           type: "text" as const,
           text: JSON.stringify({
             session_id: session.session.id,
-            total_tokens: session.getTokenCount(),
+            total_tokens: await session.getTokenCount(),
             item_count: items.length,
             items,
           }),
@@ -156,7 +191,7 @@ server.tool(
       ? sessions.get(session_id)!
       : getActiveSession();
 
-    const desc = session.describe(summary_id as SummaryId);
+    const desc = await session.describe(summary_id as SummaryId);
     if (!desc) {
       return {
         content: [{ type: "text" as const, text: JSON.stringify({ error: "Summary node not found" }) }],
@@ -183,7 +218,7 @@ server.tool(
       ? sessions.get(session_id)!
       : getActiveSession();
 
-    const messages = session.expand(summary_id as SummaryId);
+    const messages = await session.expand(summary_id as SummaryId);
     if (messages.length === 0) {
       return {
         content: [{ type: "text" as const, text: JSON.stringify({ error: "No messages found for summary" }) }],
@@ -211,7 +246,12 @@ server.tool(
   "Create a new LCM session and set it as the active session.",
   {},
   async () => {
-    const session = new LcmSession(tokenCounter, summarizer, getOrCreateConfig());
+    const session = new LcmSession(
+      tokenCounter,
+      summarizer,
+      getOrCreateConfig(),
+      { store: sharedStore, dag: sharedDag },
+    );
     activeSessionId = session.session.id;
     sessions.set(activeSessionId, session);
 
@@ -242,10 +282,10 @@ server.tool(
       ? sessions.get(session_id)!
       : getActiveSession();
 
-    const ctx = session.getContext();
+    const ctx = await session.getContext();
     const summaryCount = ctx.filter((i) => i.kind === "summary").length;
     const messageCount = ctx.filter((i) => i.kind === "message").length;
-    const archivedCount = session.dag.getArchived(session.session.id).length;
+    const archivedCount = (await session.dag.getArchived(session.session.id)).length;
 
     return {
       content: [
@@ -253,12 +293,12 @@ server.tool(
           type: "text" as const,
           text: JSON.stringify({
             session_id: session.session.id,
-            total_messages_stored: session.store.size(),
-            active_context_tokens: session.getTokenCount(),
+            total_messages_stored: await session.store.size(),
+            active_context_tokens: await session.getTokenCount(),
             active_summaries: summaryCount,
             active_raw_messages: messageCount,
             archived_summaries: archivedCount,
-            total_summary_nodes: session.dag.size(),
+            total_summary_nodes: await session.dag.size(),
           }),
         },
       ],
@@ -271,6 +311,7 @@ server.tool(
 // ---------------------------------------------------------------------------
 
 async function main() {
+  await initPersistence();
   const transport = new StdioServerTransport();
   await server.connect(transport);
 }

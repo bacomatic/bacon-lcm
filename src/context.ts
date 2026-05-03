@@ -27,20 +27,21 @@ export class ContextAssembler {
    * Assemble the active context window for a session.
    * Returns items ordered chronologically for injection into the LLM prompt.
    */
-  assemble(sessionId: SessionId): ContextItem[] {
+  async assemble(sessionId: SessionId): Promise<ContextItem[]> {
     const items: ContextItem[] = [];
 
     // 1. Active summary nodes (oldest first)
-    const summaries = this.dag.getActive(sessionId);
+    const summaries = await this.dag.getActive(sessionId);
     for (const summary of summaries) {
       items.push({ kind: "summary", summary });
     }
 
     // 2. Fresh tail: recent raw messages not covered by any active summary
-    const allMessages = this.store.getBySession(sessionId);
-    const summarizedIds = new Set(
-      summaries.flatMap((s) => this.dag.expandToMessageIds(s.id)),
+    const allMessages = await this.store.getBySession(sessionId);
+    const expandedIds = await Promise.all(
+      summaries.map((s) => this.dag.expandToMessageIds(s.id)),
     );
+    const summarizedIds = new Set(expandedIds.flat());
 
     const unsummarized = allMessages.filter((m) => !summarizedIds.has(m.id));
 
@@ -59,8 +60,8 @@ export class ContextAssembler {
   /**
    * Calculate the total token count of the current active context.
    */
-  totalTokens(sessionId: SessionId): number {
-    const items = this.assemble(sessionId);
+  async totalTokens(sessionId: SessionId): Promise<number> {
+    const items = await this.assemble(sessionId);
     return items.reduce((sum, item) => {
       if (item.kind === "message") return sum + item.message.tokenCount;
       return sum + item.summary.tokenCount;

@@ -58,38 +58,7 @@ export class PgSummaryDag implements SummaryDag {
     private readonly tokenCounter: TokenCounter,
   ) {}
 
-  add(
-    sessionId: SessionId,
-    level: SummaryLevel,
-    content: string,
-    sourceMessageIds: MessageId[],
-    sourceNodeIds: SummaryId[],
-  ): SummaryNode {
-    // Sync facade — fire-and-forget write. Use addAsync for correctness.
-    const node: SummaryNode = {
-      id: newSummaryId(),
-      sessionId,
-      level,
-      content,
-      tokenCount: this.tokenCounter.count(content),
-      createdAt: new Date(),
-      sourceMessageIds: [...sourceMessageIds],
-      sourceNodeIds: [...sourceNodeIds],
-      isActive: true,
-      isArchived: false,
-    };
-
-    this._insertAsync(node).catch((err) => {
-      console.error("PgSummaryDag: fire-and-forget insert failed:", err);
-    });
-
-    return node;
-  }
-
-  /**
-   * Async add — preferred over the sync `add` method.
-   */
-  async addAsync(
+  async add(
     sessionId: SessionId,
     level: SummaryLevel,
     content: string,
@@ -113,13 +82,7 @@ export class PgSummaryDag implements SummaryDag {
     return node;
   }
 
-  get(id: SummaryId): SummaryNode | undefined {
-    throw new Error(
-      "PgSummaryDag.get() is not supported synchronously. Use getAsync().",
-    );
-  }
-
-  async getAsync(id: SummaryId): Promise<SummaryNode | undefined> {
+  async get(id: SummaryId): Promise<SummaryNode | undefined> {
     const { rows } = await this.pool.query<SummaryRow>(
       "SELECT * FROM lcm_summary_nodes WHERE id = $1",
       [id],
@@ -127,13 +90,7 @@ export class PgSummaryDag implements SummaryDag {
     return rows.length > 0 ? rowToNode(rows[0]) : undefined;
   }
 
-  getActive(sessionId: SessionId): SummaryNode[] {
-    throw new Error(
-      "PgSummaryDag.getActive() is not supported synchronously. Use getActiveAsync().",
-    );
-  }
-
-  async getActiveAsync(sessionId: SessionId): Promise<SummaryNode[]> {
+  async getActive(sessionId: SessionId): Promise<SummaryNode[]> {
     const { rows } = await this.pool.query<SummaryRow>(
       "SELECT * FROM lcm_summary_nodes WHERE session_id = $1 AND is_active = TRUE AND is_archived = FALSE ORDER BY created_at",
       [sessionId],
@@ -141,13 +98,7 @@ export class PgSummaryDag implements SummaryDag {
     return rows.map(rowToNode);
   }
 
-  getArchived(sessionId: SessionId): SummaryNode[] {
-    throw new Error(
-      "PgSummaryDag.getArchived() is not supported synchronously. Use getArchivedAsync().",
-    );
-  }
-
-  async getArchivedAsync(sessionId: SessionId): Promise<SummaryNode[]> {
+  async getArchived(sessionId: SessionId): Promise<SummaryNode[]> {
     const { rows } = await this.pool.query<SummaryRow>(
       "SELECT * FROM lcm_summary_nodes WHERE session_id = $1 AND is_archived = TRUE ORDER BY created_at",
       [sessionId],
@@ -155,13 +106,7 @@ export class PgSummaryDag implements SummaryDag {
     return rows.map(rowToNode);
   }
 
-  getBySession(sessionId: SessionId): SummaryNode[] {
-    throw new Error(
-      "PgSummaryDag.getBySession() is not supported synchronously. Use getBySessionAsync().",
-    );
-  }
-
-  async getBySessionAsync(sessionId: SessionId): Promise<SummaryNode[]> {
+  async getBySession(sessionId: SessionId): Promise<SummaryNode[]> {
     const { rows } = await this.pool.query<SummaryRow>(
       "SELECT * FROM lcm_summary_nodes WHERE session_id = $1 ORDER BY created_at",
       [sessionId],
@@ -169,23 +114,10 @@ export class PgSummaryDag implements SummaryDag {
     return rows.map(rowToNode);
   }
 
-  archive(id: SummaryId): void {
-    // Fire-and-forget for sync interface
-    this.archiveAsync(id).catch((err) => {
-      console.error("PgSummaryDag: fire-and-forget archive failed:", err);
-    });
-  }
-
-  async archiveAsync(id: SummaryId): Promise<void> {
+  async archive(id: SummaryId): Promise<void> {
     await this.pool.query(
       "UPDATE lcm_summary_nodes SET is_active = FALSE, is_archived = TRUE WHERE id = $1",
       [id],
-    );
-  }
-
-  expandToMessageIds(id: SummaryId): MessageId[] {
-    throw new Error(
-      "PgSummaryDag.expandToMessageIds() is not supported synchronously. Use expandToMessageIdsAsync().",
     );
   }
 
@@ -193,7 +125,7 @@ export class PgSummaryDag implements SummaryDag {
    * Recursively collect every source message ID reachable from a node.
    * Uses a recursive CTE for efficiency.
    */
-  async expandToMessageIdsAsync(id: SummaryId): Promise<MessageId[]> {
+  async expandToMessageIds(id: SummaryId): Promise<MessageId[]> {
     const { rows } = await this.pool.query<{ message_id: string }>(
       `WITH RECURSIVE lineage AS (
         SELECT id, source_message_ids, source_node_ids
@@ -210,13 +142,7 @@ export class PgSummaryDag implements SummaryDag {
     return rows.map((r) => r.message_id as MessageId);
   }
 
-  size(): number {
-    throw new Error(
-      "PgSummaryDag.size() is not supported synchronously. Use sizeAsync().",
-    );
-  }
-
-  async sizeAsync(): Promise<number> {
+  async size(): Promise<number> {
     const { rows } = await this.pool.query<{ count: string }>(
       "SELECT COUNT(*) as count FROM lcm_summary_nodes",
     );

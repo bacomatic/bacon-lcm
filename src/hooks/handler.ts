@@ -94,7 +94,7 @@ export async function handleHookEvent(event: HookEvent): Promise<HookResult> {
       return {
         stored: false,
         session_id: s.session.id,
-        active_tokens: s.getTokenCount(),
+        active_tokens: await s.getTokenCount(),
         compacted: false,
       };
     case "transcript":
@@ -104,7 +104,7 @@ export async function handleHookEvent(event: HookEvent): Promise<HookResult> {
       return {
         stored: false,
         session_id: s.session.id,
-        active_tokens: s.getTokenCount(),
+        active_tokens: await s.getTokenCount(),
         compacted: false,
       };
   }
@@ -113,7 +113,7 @@ export async function handleHookEvent(event: HookEvent): Promise<HookResult> {
     return {
       stored: false,
       session_id: s.session.id,
-      active_tokens: s.getTokenCount(),
+      active_tokens: await s.getTokenCount(),
       compacted: false,
     };
   }
@@ -128,7 +128,7 @@ export async function handleHookEvent(event: HookEvent): Promise<HookResult> {
     stored: true,
     message_id: message.id,
     session_id: s.session.id,
-    active_tokens: s.getTokenCount(),
+    active_tokens: await s.getTokenCount(),
     compacted,
   };
 }

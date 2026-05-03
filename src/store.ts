@@ -27,22 +27,22 @@ export interface MessageStore {
     role: MessageRole,
     content: string,
     metadata?: Record<string, unknown>,
-  ): Message;
+  ): Promise<Message>;
 
   /** Retrieve a single message by ID. */
-  get(id: MessageId): Message | undefined;
+  get(id: MessageId): Promise<Message | undefined>;
 
   /** Retrieve all messages for a session, ordered by sequence number. */
-  getBySession(sessionId: SessionId): Message[];
+  getBySession(sessionId: SessionId): Promise<Message[]>;
 
   /** Retrieve a contiguous range of messages by sequence number (inclusive). */
-  getRange(sessionId: SessionId, from: number, to: number): Message[];
+  getRange(sessionId: SessionId, from: number, to: number): Promise<Message[]>;
 
   /** Retrieve specific messages by their IDs, preserving order. */
-  getMany(ids: MessageId[]): Message[];
+  getMany(ids: MessageId[]): Promise<Message[]>;
 
   /** Total number of messages stored. */
-  size(): number;
+  size(): Promise<number>;
 }
 
 // ---------------------------------------------------------------------------
@@ -56,12 +56,12 @@ export class InMemoryMessageStore implements MessageStore {
 
   constructor(private readonly tokenCounter: TokenCounter) {}
 
-  append(
+  async append(
     sessionId: SessionId,
     role: MessageRole,
     content: string,
     metadata?: Record<string, unknown>,
-  ): Message {
+  ): Promise<Message> {
     const seq = (this.sessionSeq.get(sessionId) ?? 0) + 1;
     this.sessionSeq.set(sessionId, seq);
 
@@ -88,21 +88,21 @@ export class InMemoryMessageStore implements MessageStore {
     return message;
   }
 
-  get(id: MessageId): Message | undefined {
+  async get(id: MessageId): Promise<Message | undefined> {
     return this.messages.get(id);
   }
 
-  getBySession(sessionId: SessionId): Message[] {
+  async getBySession(sessionId: SessionId): Promise<Message[]> {
     return this.sessionIndex.get(sessionId) ?? [];
   }
 
-  getRange(sessionId: SessionId, from: number, to: number): Message[] {
-    return this.getBySession(sessionId).filter(
+  async getRange(sessionId: SessionId, from: number, to: number): Promise<Message[]> {
+    return (await this.getBySession(sessionId)).filter(
       (m) => m.sequenceNumber >= from && m.sequenceNumber <= to,
     );
   }
 
-  getMany(ids: MessageId[]): Message[] {
+  async getMany(ids: MessageId[]): Promise<Message[]> {
     const result: Message[] = [];
     for (const id of ids) {
       const m = this.messages.get(id);
@@ -111,7 +111,7 @@ export class InMemoryMessageStore implements MessageStore {
     return result;
   }
 
-  size(): number {
+  async size(): Promise<number> {
     return this.messages.size;
   }
 }

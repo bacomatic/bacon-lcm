@@ -30,28 +30,28 @@ export interface SummaryDag {
     content: string,
     sourceMessageIds: MessageId[],
     sourceNodeIds: SummaryId[],
-  ): SummaryNode;
+  ): Promise<SummaryNode>;
 
   /** Retrieve a node by ID. */
-  get(id: SummaryId): SummaryNode | undefined;
+  get(id: SummaryId): Promise<SummaryNode | undefined>;
 
   /** All active (in-context) summary nodes for a session, oldest first. */
-  getActive(sessionId: SessionId): SummaryNode[];
+  getActive(sessionId: SessionId): Promise<SummaryNode[]>;
 
   /** All archived (off-context) summary nodes for a session. */
-  getArchived(sessionId: SessionId): SummaryNode[];
+  getArchived(sessionId: SessionId): Promise<SummaryNode[]>;
 
   /** All nodes for a session regardless of status. */
-  getBySession(sessionId: SessionId): SummaryNode[];
+  getBySession(sessionId: SessionId): Promise<SummaryNode[]>;
 
   /** Mark a node as archived (no longer in active context). */
-  archive(id: SummaryId): void;
+  archive(id: SummaryId): Promise<void>;
 
   /** Recursively collect every source message ID reachable from a node. */
-  expandToMessageIds(id: SummaryId): MessageId[];
+  expandToMessageIds(id: SummaryId): Promise<MessageId[]>;
 
   /** Total nodes stored. */
-  size(): number;
+  size(): Promise<number>;
 }
 
 // ---------------------------------------------------------------------------
@@ -64,13 +64,13 @@ export class InMemorySummaryDag implements SummaryDag {
 
   constructor(private readonly tokenCounter: TokenCounter) {}
 
-  add(
+  async add(
     sessionId: SessionId,
     level: SummaryLevel,
     content: string,
     sourceMessageIds: MessageId[],
     sourceNodeIds: SummaryId[],
-  ): SummaryNode {
+  ): Promise<SummaryNode> {
     const node: SummaryNode = {
       id: newSummaryId(),
       sessionId,
@@ -96,25 +96,25 @@ export class InMemorySummaryDag implements SummaryDag {
     return node;
   }
 
-  get(id: SummaryId): SummaryNode | undefined {
+  async get(id: SummaryId): Promise<SummaryNode | undefined> {
     return this.nodes.get(id);
   }
 
-  getActive(sessionId: SessionId): SummaryNode[] {
+  async getActive(sessionId: SessionId): Promise<SummaryNode[]> {
     return (this.sessionIndex.get(sessionId) ?? []).filter(
       (n) => n.isActive && !n.isArchived,
     );
   }
 
-  getArchived(sessionId: SessionId): SummaryNode[] {
+  async getArchived(sessionId: SessionId): Promise<SummaryNode[]> {
     return (this.sessionIndex.get(sessionId) ?? []).filter((n) => n.isArchived);
   }
 
-  getBySession(sessionId: SessionId): SummaryNode[] {
+  async getBySession(sessionId: SessionId): Promise<SummaryNode[]> {
     return this.sessionIndex.get(sessionId) ?? [];
   }
 
-  archive(id: SummaryId): void {
+  async archive(id: SummaryId): Promise<void> {
     const node = this.nodes.get(id);
     if (node) {
       node.isActive = false;
@@ -122,14 +122,14 @@ export class InMemorySummaryDag implements SummaryDag {
     }
   }
 
-  expandToMessageIds(id: SummaryId): MessageId[] {
+  async expandToMessageIds(id: SummaryId): Promise<MessageId[]> {
     const node = this.nodes.get(id);
     if (!node) return [];
 
     const messageIds = new Set<MessageId>(node.sourceMessageIds);
 
     for (const childId of node.sourceNodeIds) {
-      for (const mid of this.expandToMessageIds(childId)) {
+      for (const mid of await this.expandToMessageIds(childId)) {
         messageIds.add(mid);
       }
     }
@@ -137,7 +137,7 @@ export class InMemorySummaryDag implements SummaryDag {
     return [...messageIds];
   }
 
-  size(): number {
+  async size(): Promise<number> {
     return this.nodes.size;
   }
 }

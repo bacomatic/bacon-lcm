@@ -86,14 +86,14 @@ export class LcmSession {
     content: string,
     metadata?: Record<string, unknown>,
   ): Promise<{ message: Message; compacted: boolean }> {
-    const message = this.store.append(
+    const message = await this.store.append(
       this.session.id,
       role,
       content,
       metadata,
     );
 
-    this.session.activeTokenCount = this.context.totalTokens(this.session.id);
+    this.session.activeTokenCount = await this.context.totalTokens(this.session.id);
 
     let compacted = false;
 
@@ -103,7 +103,7 @@ export class LcmSession {
         this.session.id,
         this.session.activeTokenCount,
       );
-      this.session.activeTokenCount = this.context.totalTokens(this.session.id);
+      this.session.activeTokenCount = await this.context.totalTokens(this.session.id);
       compacted = true;
     } else if (this.compaction.shouldCompact(this.session.activeTokenCount)) {
       // Async compaction — fire and forget (in a real system this would be
@@ -112,7 +112,7 @@ export class LcmSession {
         this.session.id,
         this.session.activeTokenCount,
       );
-      this.session.activeTokenCount = this.context.totalTokens(this.session.id);
+      this.session.activeTokenCount = await this.context.totalTokens(this.session.id);
       compacted = true;
     }
 
@@ -124,12 +124,12 @@ export class LcmSession {
   // -----------------------------------------------------------------------
 
   /** Build the active context window to send to the LLM. */
-  getContext(): ContextItem[] {
+  async getContext(): Promise<ContextItem[]> {
     return this.context.assemble(this.session.id);
   }
 
   /** Current token count of the active context. */
-  getTokenCount(): number {
+  async getTokenCount(): Promise<number> {
     return this.context.totalTokens(this.session.id);
   }
 
@@ -138,12 +138,12 @@ export class LcmSession {
   // -----------------------------------------------------------------------
 
   /** Describe a summary node's lineage metadata. */
-  describe(summaryId: SummaryId) {
+  async describe(summaryId: SummaryId) {
     return this.retrieval.describe(summaryId);
   }
 
   /** Expand a summary back to its original messages. */
-  expand(summaryId: SummaryId) {
+  async expand(summaryId: SummaryId) {
     return this.retrieval.expand(summaryId);
   }
 }
