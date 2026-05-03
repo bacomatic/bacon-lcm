@@ -74,6 +74,7 @@ async fn status_handler(State(state): State<AppState>) -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
     use axum::body::Body;
     use axum::http::Request;
     use tower::ServiceExt;
