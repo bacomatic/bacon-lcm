@@ -1,9 +1,16 @@
-node_modules/
-dist/
-*.tsbuildinfo
+# Environment
 .env
 .env.local
+
+# Logs
 *.log
+
+# OS
 .DS_Store
-coverage/
+
+# Rust
 target/
+
+# Test output
+coverage/
+
