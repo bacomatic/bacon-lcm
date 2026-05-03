@@ -87,7 +87,6 @@ mod tests {
         let m = Metrics::new().unwrap();
         m.messages_stored_total.inc_by(5.0);
         let mut buf = String::new();
-        use prometheus::Encoder;
         let encoder = prometheus::TextEncoder::new();
         let mfs = m.registry.gather();
         encoder.encode_utf8(&mfs, &mut buf).unwrap();
