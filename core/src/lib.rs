@@ -1,6 +1,6 @@
 // core/src/lib.rs
 //! bacon-lcm-core - Lossless Context Memory core library
-//! 
+//!
 //! This library provides the core LCM functionality including:
 //! - Session management with three-level compaction
 //! - PostgreSQL persistence layer
@@ -8,32 +8,33 @@
 //! - Type-safe ID management
 //! - Comprehensive error handling
 
-pub mod types;
-pub mod ids;
-pub mod config;
-pub mod error;
-pub mod session;
 pub mod compaction;
-pub mod storage;
-pub mod providers;
+pub mod config;
+pub mod context;
+pub mod error;
+pub mod ids;
 pub mod metrics;
+pub mod providers;
+pub mod session;
+pub mod storage;
+pub mod types;
 
 // Re-export key types for convenience
 // NOTE: These re-exports are stubs during initial scaffolding; allow unused for now.
-#[allow(unused_imports)]
-pub use types::*;
-#[allow(unused_imports)]
-pub use ids::*;
+pub use compaction::CompactionEngine;
 #[allow(unused_imports)]
 pub use config::*;
 #[allow(unused_imports)]
 pub use error::*;
+#[allow(unused_imports)]
+pub use ids::*;
+#[allow(unused_imports)]
+pub use providers::*;
 pub use session::LcmSession;
-pub use compaction::CompactionEngine;
 #[allow(unused_imports)]
 pub use storage::*;
 #[allow(unused_imports)]
-pub use providers::*;
+pub use types::*;
 
 #[cfg(test)]
 mod tests {

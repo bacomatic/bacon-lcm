@@ -1,6 +1,6 @@
 // core/src/error.rs
-use thiserror::Error;
 use crate::types::{MessageId, SessionId, SummaryId};
+use thiserror::Error;
 
 /// Main LCM error type
 #[derive(Error, Debug)]

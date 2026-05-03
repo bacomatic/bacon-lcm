@@ -265,7 +265,7 @@ impl LcmConfig {
     }
 
     /// Get default configuration
-    fn defaults() -> Self {
+    pub fn defaults() -> Self {
         Self {
             summarizer: SummarizerConfig {
                 provider: "echo".to_string(),

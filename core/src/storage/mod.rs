@@ -16,7 +16,7 @@ pub mod vector_store;
 pub use message_store::{InMemoryMessageStore, MessageStore};
 pub use session_store::{InMemorySessionStore, SessionStore};
 pub use summary_dag::{InMemorySummaryDag, SummaryDag};
-pub use vector_store::{InMemoryVectorStore, VectorStore};
+pub use vector_store::{InMemoryVectorStore, VectorRecord, VectorStore};
 
 // Postgres implementations are provided by the daemon crate (require a live DB).
 // Placeholder type aliases keep the public API stable.
