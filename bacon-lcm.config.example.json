@@ -1,4 +1,7 @@
 {
+  "tokenizer": {
+    "type": "auto"
+  },
   "summarizer": {
     "provider": "openai",
     "model": "gpt-4o-mini",

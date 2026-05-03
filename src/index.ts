@@ -61,10 +61,14 @@ export {
 
 // Config
 export { loadConfig, resetConfig, getCompactionConfig, getSummarizerConfig } from "./config.js";
-export type { LcmConfig, SummarizerConfig } from "./config.js";
+export type { LcmConfig, SummarizerConfig, TokenizerConfig } from "./config.js";
 
 // Summarizers
 export { createSummarizer, OpenAISummarizer, AnthropicSummarizer } from "./summarizers/index.js";
+
+// Tokenizers
+export { createTokenCounter, TiktokenCounter, AnthropicTokenCounter } from "./tokenizers/index.js";
+export type { TiktokenCounterOptions, TiktokenEncoding } from "./tokenizers/index.js";
 
 // Dashboard
 export { registry, startDashboard } from "./dashboard/index.js";

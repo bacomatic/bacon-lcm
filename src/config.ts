@@ -21,6 +21,15 @@ import { DEFAULT_COMPACTION_CONFIG, DEFAULT_THRESHOLDS } from "./defaults.js";
 // Config types
 // ---------------------------------------------------------------------------
 
+export interface TokenizerConfig {
+  /** Type: "auto" | "tiktoken" | "anthropic" | "naive" */
+  type: "auto" | "tiktoken" | "anthropic" | "naive";
+  /** Model name for tiktoken encoding selection (e.g. "gpt-4o-mini") */
+  model?: string;
+  /** Explicit tiktoken encoding name (e.g. "o200k_base", "cl100k_base") */
+  encoding?: string;
+}
+
 export interface SummarizerConfig {
   /** Provider: "openai" | "anthropic" | "echo" */
   provider: "openai" | "anthropic" | "echo";
@@ -41,6 +50,8 @@ export interface SummarizerConfig {
 export interface LcmConfig {
   /** Summarizer provider configuration */
   summarizer: SummarizerConfig;
+  /** Token counter configuration */
+  tokenizer?: TokenizerConfig;
   /** Compaction engine thresholds and parameters */
   compaction: CompactionConfig;
   /** PostgreSQL connection string */
@@ -156,6 +167,21 @@ function applyEnvOverrides(config: LcmConfig): void {
       ...config.dashboard,
       enabled: true,
       port: parseInt(process.env.DASHBOARD_PORT, 10),
+    };
+  }
+
+  // Tokenizer
+  if (process.env.LCM_TOKENIZER) {
+    config.tokenizer = {
+      ...config.tokenizer,
+      type: process.env.LCM_TOKENIZER as TokenizerConfig["type"],
+    };
+  }
+  if (process.env.LCM_TOKENIZER_MODEL) {
+    config.tokenizer = {
+      ...config.tokenizer,
+      type: config.tokenizer?.type ?? "tiktoken",
+      model: process.env.LCM_TOKENIZER_MODEL,
     };
   }
 

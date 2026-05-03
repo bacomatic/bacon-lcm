@@ -92,12 +92,17 @@ if (summaries.length > 0) {
 
 | Interface      | Purpose                          | Default                    |
 |----------------|----------------------------------|----------------------------|
-| `TokenCounter` | Estimate token count for a text  | `NaiveTokenCounter` (~4 c/t) |
+| `TokenCounter` | Estimate token count for a text  | Auto-selected by provider  |
 | `Summarizer`   | LLM call to produce summaries    | `EchoSummarizer` (testing) |
 | `MessageStore` | Persistence for raw messages     | `InMemoryMessageStore`     |
 | `SummaryDag`   | Persistence for the summary DAG  | `InMemorySummaryDag`       |
 
-Replace `NaiveTokenCounter` with tiktoken or your model's tokenizer for production use.
+Token counters are auto-selected based on the summarizer provider:
+- **OpenAI** → `TiktokenCounter` (accurate BPE via `js-tiktoken`, model-aware)
+- **Anthropic** → `AnthropicTokenCounter` (calibrated heuristic, ~3.4 chars/token)
+- **Echo/other** → `NaiveTokenCounter` (~4 chars/token)
+
+Override with the `tokenizer` config section or `LCM_TOKENIZER` env var.
 
 ## Configuration
 
@@ -146,6 +151,8 @@ See `bacon-lcm.config.example.json` for a complete template.
 | `LCM_SOFT_LIMIT` | Override soft compaction limit |
 | `LCM_HARD_LIMIT` | Override hard compaction limit |
 | `LCM_FRESH_TAIL_COUNT` | Override fresh tail message count |
+| `LCM_TOKENIZER` | `auto`, `tiktoken`, `anthropic`, or `naive` |
+| `LCM_TOKENIZER_MODEL` | Model for tiktoken encoding (e.g. `gpt-4o`) |
 
 ### Summarizer providers
 
@@ -371,11 +378,15 @@ src/
   mcp-server.ts     MCP server (stdio transport)
   index.ts          Public API barrel export
   lcm.test.ts       Core test suite
-  config.test.ts    Config + summarizer test suite
+  config.test.ts    Config, summarizer & tokenizer test suite
   summarizers/
     openai.ts       OpenAI-compatible summarizer (OpenAI, Azure, Ollama, etc.)
     anthropic.ts    Anthropic Messages API summarizer
     index.ts        Summarizer factory + barrel export
+  tokenizers/
+    tiktoken.ts     Accurate BPE counting via js-tiktoken (OpenAI models)
+    anthropic.ts    Calibrated heuristic (~3.4 c/t) for Claude models
+    index.ts        Token counter factory + auto-selection
   hooks/
     handler.ts      Unified hook handler (platform-agnostic)
     windsurf.ts     Windsurf Cascade hooks adapter

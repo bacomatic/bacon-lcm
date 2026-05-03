@@ -17,7 +17,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import pg from "pg";
 import { z } from "zod";
-import { NaiveTokenCounter } from "./defaults.js";
+import { createTokenCounter } from "./tokenizers/index.js";
 import { PgMessageStore } from "./pg/pg-store.js";
 import { PgSummaryDag } from "./pg/pg-dag.js";
 import { LcmSession } from "./session.js";
@@ -34,7 +34,7 @@ import { startDashboard } from "./dashboard/server.js";
 // ---------------------------------------------------------------------------
 
 let config: LcmConfig;
-const tokenCounter = new NaiveTokenCounter();
+let tokenCounter: import("./types.js").TokenCounter;
 
 let pool: pg.Pool | null = null;
 let sharedStore: MessageStore | undefined;
@@ -42,11 +42,16 @@ let sharedDag: SummaryDag | undefined;
 
 async function init(): Promise<void> {
   config = loadConfig();
+  tokenCounter = createTokenCounter(config);
 
-  // Summarizer provider info
+  // Log provider info
   console.error(
     `bacon-lcm MCP: summarizer=${config.summarizer.provider}` +
       (config.summarizer.model ? ` model=${config.summarizer.model}` : ""),
+  );
+  console.error(
+    `bacon-lcm MCP: tokenizer=${config.tokenizer?.type ?? "auto"}` +
+      ` (resolved=${tokenCounter.constructor.name})`,
   );
 
   // Postgres persistence
