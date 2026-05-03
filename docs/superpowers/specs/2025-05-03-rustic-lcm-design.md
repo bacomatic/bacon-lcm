@@ -788,6 +788,128 @@ lazy_static! {
 }
 ```
 
+## Licensing Policy
+
+### MIT License Requirement
+
+**Core Requirement**: All code and dependencies must be MIT-compatible. No copyleft licenses (GPL, AGPL, LGPL, etc.) are permitted.
+
+### License Compliance Strategy
+
+```rust
+// Cargo.toml - License declarations
+[package]
+name = "bacon-lcm"
+version = "0.1.0"
+license = "MIT"
+description = "Lossless Context Memory — deterministic, database-backed context management for LLM agents"
+
+[dependencies]
+# All dependencies must be MIT-compatible
+tokio = { version = "1.0", license = "MIT" }
+sqlx = { version = "0.7", license = "MIT OR Apache-2.0" }
+serde = { version = "1.0", license = "MIT OR Apache-2.0" }
+reqwest = { version = "0.11", license = "MIT OR Apache-2.0" }
+tracing = { version = "0.1", license = "MIT" }
+anyhow = { version = "1.0", license = "MIT OR Apache-2.0" }
+thiserror = { version = "1.0", license = "MIT OR Apache-2.0" }
+```
+
+### Dependency Vetting Process
+
+1. **Pre-approval Checklist**:
+   - ✅ License is MIT or MIT-compatible (Apache-2.0, BSD, ISC)
+   - ❌ No GPL, AGPL, LGPL, or other copyleft licenses
+   - ✅ No restrictive custom licenses
+   - ✅ Compatible with commercial use
+
+2. **Automated Verification**:
+   ```bash
+   # CI/CD license check
+   cargo install cargo-license
+   cargo license --json | jq '.dependencies[] | select(.license | contains("GPL"))'
+   ```
+
+3. **Manual Review**:
+   - Review dependency tree for transitive license conflicts
+   - Check for dual-licensed dependencies (prefer MIT option)
+   - Verify no license changes in dependency updates
+
+### Approved Dependency Categories
+
+| Category | Example Crates | License | Status |
+|----------|----------------|---------|--------|
+| Async Runtime | `tokio`, `async-std` | MIT | ✅ Approved |
+| Database | `sqlx`, `tiberius` | MIT/Apache-2.0 | ✅ Approved |
+| HTTP Clients | `reqwest`, `hyper` | MIT/Apache-2.0 | ✅ Approved |
+| Serialization | `serde`, `serde_json` | MIT/Apache-2.0 | ✅ Approved |
+| Logging | `tracing`, `slog` | MIT | ✅ Approved |
+| Testing | `proptest`, `criterion` | MIT/Apache-2.0 | ✅ Approved |
+| CLI Tools | `clap`, `structopt` | MIT/Apache-2.0 | ✅ Approved |
+
+### Prohibited Dependencies
+
+| Category | Example Crates | License | Reason |
+|----------|----------------|---------|--------|
+| GUI Frameworks | `egui`, `iced` | MIT/Apache-2.0 | ✅ Actually allowed |
+| Some ML Libraries | `candle`, `tch` | Apache-2.0 | ✅ Actually allowed |
+| Database Drivers | `postgres`, `mysql` | MIT/Apache-2.0 | ✅ Actually allowed |
+
+### Alternative Strategies for Restricted Dependencies
+
+If a required dependency has copyleft licensing:
+
+1. **Find MIT Alternative**: Search for MIT-licensed alternatives
+2. **Implement Custom Solution**: Build minimal in-house implementation
+3. **Use FFI Boundary**: Separate copyleft code into optional, isolated modules
+4. **Dual License Negotiation**: Contact maintainers for commercial licensing
+
+### License Compliance in CI/CD
+
+```yaml
+# .github/workflows/license-check.yml
+name: License Compliance
+on: [push, pull_request]
+
+jobs:
+  license-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install cargo-license
+        run: cargo install cargo-license
+      - name: Check licenses
+        run: |
+          cargo license --json > licenses.json
+          if jq -e '.dependencies[] | select(.license | test("GPL|AGPL|LGPL"))' licenses.json; then
+            echo "❌ Copyleft license detected!"
+            exit 1
+          fi
+          echo "✅ All dependencies are MIT-compatible"
+```
+
+### Documentation Requirements
+
+All documentation and README files must include:
+
+```markdown
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## Dependencies
+
+All dependencies are MIT-compatible. See `cargo license` for a complete list of dependency licenses.
+```
+
+### Third-Party Integration Policy
+
+When integrating with external services:
+
+1. **API Clients**: Must use MIT-licensed client libraries or implement custom HTTP clients
+2. **Protocol Implementations**: Prefer MIT-licensed protocol crates (e.g., `model-context-protocol`)
+3. **Code Generation**: Generated code must not introduce copyleft dependencies
+
 ## Security Considerations
 
 ### API Key Management
@@ -1007,6 +1129,12 @@ cargo run --bin lcm-daemon
 - ✅ Performance benchmarking suite
 - ✅ Docker-first deployment model
 - ✅ Detailed documentation and migration guide
+
+### Licensing Requirements
+- ✅ MIT license for all project code
+- ✅ All dependencies MIT-compatible (no copyleft)
+- ✅ Automated license compliance checking
+- ✅ Clear documentation of dependency licenses
 
 ## Risks and Mitigations
 
