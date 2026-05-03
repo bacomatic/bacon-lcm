@@ -26,6 +26,8 @@ anyhow             = { workspace = true }
 pgvector           = { workspace = true }
 chrono             = { workspace = true }
 uuid               = { workspace = true }
+axum               = { workspace = true }
+prometheus         = { workspace = true }
 
 [dev-dependencies]
 tokio                  = { workspace = true }

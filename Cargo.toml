@@ -44,6 +44,8 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 config = { version = "0.13" }
 # Async utilities
 futures = { version = "0.3" }
+# HTTP framework
+axum = { version = "0.7", features = ["json"] }
 # Metrics
 prometheus = { version = "0.13" }
 # Shell path expansion
