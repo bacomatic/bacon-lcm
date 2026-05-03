@@ -17,44 +17,58 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import pg from "pg";
 import { z } from "zod";
-import {
-  DEFAULT_COMPACTION_CONFIG,
-  EchoSummarizer,
-  NaiveTokenCounter,
-} from "./defaults.js";
+import { NaiveTokenCounter } from "./defaults.js";
 import { PgMessageStore } from "./pg/pg-store.js";
 import { PgSummaryDag } from "./pg/pg-dag.js";
 import { LcmSession } from "./session.js";
 import type { MessageStore } from "./store.js";
 import type { SummaryDag } from "./dag.js";
-import type { CompactionConfig, SummaryId } from "./types.js";
+import type { SummaryId } from "./types.js";
+import { loadConfig, type LcmConfig } from "./config.js";
+import { createSummarizer } from "./summarizers/index.js";
 import { registry } from "./dashboard/registry.js";
 import { startDashboard } from "./dashboard/server.js";
 
 // ---------------------------------------------------------------------------
-// Persistence setup — uses Postgres if DATABASE_URL is set, else in-memory
+// Configuration
 // ---------------------------------------------------------------------------
 
-const DATABASE_URL = process.env.DATABASE_URL;
+let config: LcmConfig;
 const tokenCounter = new NaiveTokenCounter();
-const summarizer = new EchoSummarizer();
 
 let pool: pg.Pool | null = null;
 let sharedStore: MessageStore | undefined;
 let sharedDag: SummaryDag | undefined;
 
-async function initPersistence(): Promise<void> {
-  if (DATABASE_URL) {
-    pool = new pg.Pool({ connectionString: DATABASE_URL });
+async function init(): Promise<void> {
+  config = loadConfig();
+
+  // Summarizer provider info
+  console.error(
+    `bacon-lcm MCP: summarizer=${config.summarizer.provider}` +
+      (config.summarizer.model ? ` model=${config.summarizer.model}` : ""),
+  );
+
+  // Postgres persistence
+  if (config.databaseUrl) {
+    pool = new pg.Pool({ connectionString: config.databaseUrl });
     const pgStore = new PgMessageStore(pool, tokenCounter);
     const pgDag = new PgSummaryDag(pool, tokenCounter);
     await pgStore.migrate();
     await pgDag.migrate();
     sharedStore = pgStore;
     sharedDag = pgDag;
-    console.error(`bacon-lcm MCP: using Postgres (${DATABASE_URL})`);
+    console.error(`bacon-lcm MCP: using Postgres`);
   } else {
     console.error("bacon-lcm MCP: using in-memory storage (set DATABASE_URL for persistence)");
+  }
+
+  // Dashboard
+  if (config.dashboard?.enabled) {
+    startDashboard({
+      port: config.dashboard.port,
+      host: config.dashboard.host,
+    });
   }
 }
 
@@ -64,18 +78,15 @@ async function initPersistence(): Promise<void> {
 
 const sessions = new Map<string, LcmSession>();
 
-function getOrCreateConfig(): CompactionConfig {
-  return { ...DEFAULT_COMPACTION_CONFIG };
-}
-
 let activeSessionId: string | null = null;
 
 function getActiveSession(): LcmSession {
   if (!activeSessionId || !sessions.has(activeSessionId)) {
+    const summarizer = createSummarizer(config.summarizer);
     const session = new LcmSession(
       tokenCounter,
       summarizer,
-      getOrCreateConfig(),
+      config.compaction,
       { store: sharedStore, dag: sharedDag },
     );
     activeSessionId = session.session.id;
@@ -250,10 +261,11 @@ server.tool(
   "Create a new LCM session and set it as the active session.",
   {},
   async () => {
+    const summarizer = createSummarizer(config.summarizer);
     const session = new LcmSession(
       tokenCounter,
       summarizer,
-      getOrCreateConfig(),
+      config.compaction,
       { store: sharedStore, dag: sharedDag },
     );
     activeSessionId = session.session.id;
@@ -317,13 +329,7 @@ server.tool(
 // ---------------------------------------------------------------------------
 
 async function main() {
-  await initPersistence();
-
-  // Optionally start the dashboard server
-  if (process.env.DASHBOARD === "1" || process.env.DASHBOARD_PORT) {
-    startDashboard();
-  }
-
+  await init();
   const transport = new StdioServerTransport();
   await server.connect(transport);
 }

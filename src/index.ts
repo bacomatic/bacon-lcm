@@ -59,6 +59,13 @@ export {
   NaiveTokenCounter,
 } from "./defaults.js";
 
+// Config
+export { loadConfig, resetConfig, getCompactionConfig, getSummarizerConfig } from "./config.js";
+export type { LcmConfig, SummarizerConfig } from "./config.js";
+
+// Summarizers
+export { createSummarizer, OpenAISummarizer, AnthropicSummarizer } from "./summarizers/index.js";
+
 // Dashboard
 export { registry, startDashboard } from "./dashboard/index.js";
 export type { SessionSnapshot, DashboardOverview, DashboardOptions } from "./dashboard/index.js";

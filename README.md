@@ -97,7 +97,83 @@ if (summaries.length > 0) {
 | `MessageStore` | Persistence for raw messages     | `InMemoryMessageStore`     |
 | `SummaryDag`   | Persistence for the summary DAG  | `InMemorySummaryDag`       |
 
-Replace `NaiveTokenCounter` with tiktoken or your model's tokenizer, and `EchoSummarizer` with an actual LLM call for production use.
+Replace `NaiveTokenCounter` with tiktoken or your model's tokenizer for production use.
+
+## Configuration
+
+bacon-lcm uses a layered config system: **defaults ← config file ← env vars**.
+
+### Config file
+
+Create `bacon-lcm.config.json` in your project root or `~/.config/bacon-lcm/config.json`:
+
+```json
+{
+  "summarizer": {
+    "provider": "openai",
+    "model": "gpt-4o-mini",
+    "baseUrl": "https://api.openai.com/v1",
+    "maxTokens": 1024,
+    "temperature": 0.3
+  },
+  "compaction": {
+    "thresholds": { "modelMaxTokens": 128000, "softLimit": 80000, "hardLimit": 110000 },
+    "freshTailCount": 10
+  },
+  "databaseUrl": "postgres://localhost:5432/bacon_lcm",
+  "dashboard": { "enabled": true, "port": 3333 }
+}
+```
+
+Or set `LCM_CONFIG=/path/to/config.json` to use a custom location.
+
+See `bacon-lcm.config.example.json` for a complete template.
+
+### Environment variable overrides
+
+| Variable | Description |
+|----------|-------------|
+| `LCM_SUMMARIZER_PROVIDER` | `openai`, `anthropic`, or `echo` |
+| `LCM_SUMMARIZER_MODEL` | Model name (e.g. `gpt-4o-mini`, `claude-sonnet-4-20250514`) |
+| `LCM_SUMMARIZER_BASE_URL` | OpenAI-compatible endpoint URL |
+| `LCM_API_KEY` | API key (highest priority) |
+| `OPENAI_API_KEY` | OpenAI API key (fallback) |
+| `ANTHROPIC_API_KEY` | Anthropic API key (fallback) |
+| `DATABASE_URL` | PostgreSQL connection string |
+| `DASHBOARD` | Set to `1` to enable dashboard |
+| `DASHBOARD_PORT` | Dashboard port (default 3333) |
+| `LCM_MODEL_MAX_TOKENS` | Override model max tokens |
+| `LCM_SOFT_LIMIT` | Override soft compaction limit |
+| `LCM_HARD_LIMIT` | Override hard compaction limit |
+| `LCM_FRESH_TAIL_COUNT` | Override fresh tail message count |
+
+### Summarizer providers
+
+**OpenAI-compatible** — works with OpenAI, Azure OpenAI, Ollama, LM Studio, vLLM:
+
+```json
+{ "provider": "openai", "model": "gpt-4o-mini", "baseUrl": "https://api.openai.com/v1" }
+```
+
+For local models via Ollama: `{ "provider": "openai", "baseUrl": "http://localhost:11434/v1", "model": "llama3" }`
+
+**Anthropic**:
+
+```json
+{ "provider": "anthropic", "model": "claude-sonnet-4-20250514" }
+```
+
+**Echo** (default, for testing): returns input concatenated with a header — no LLM call.
+
+### Programmatic config
+
+```typescript
+import { loadConfig, createSummarizer } from "bacon-lcm";
+
+const config = loadConfig();
+const summarizer = createSummarizer(config.summarizer);
+const session = new LcmSession(tokenCounter, summarizer, config.compaction);
+```
 
 ## PostgreSQL Persistence
 
@@ -290,10 +366,16 @@ src/
   context.ts        Active context window assembler
   retrieval.ts      lcm_describe / lcm_expand tools
   session.ts        Top-level session orchestrator
+  config.ts         Layered config system (file + env overrides)
   defaults.ts       Default implementations & config presets
   mcp-server.ts     MCP server (stdio transport)
   index.ts          Public API barrel export
   lcm.test.ts       Core test suite
+  config.test.ts    Config + summarizer test suite
+  summarizers/
+    openai.ts       OpenAI-compatible summarizer (OpenAI, Azure, Ollama, etc.)
+    anthropic.ts    Anthropic Messages API summarizer
+    index.ts        Summarizer factory + barrel export
   hooks/
     handler.ts      Unified hook handler (platform-agnostic)
     windsurf.ts     Windsurf Cascade hooks adapter
