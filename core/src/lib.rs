@@ -19,17 +19,25 @@ pub mod providers;
 pub mod metrics;
 
 // Re-export key types for convenience
+// NOTE: These re-exports are stubs during initial scaffolding; allow unused for now.
+#[allow(unused_imports)]
 pub use types::*;
+#[allow(unused_imports)]
 pub use ids::*;
+#[allow(unused_imports)]
 pub use config::*;
+#[allow(unused_imports)]
 pub use error::*;
 pub use session::LcmSession;
 pub use compaction::CompactionEngine;
+#[allow(unused_imports)]
 pub use storage::*;
+#[allow(unused_imports)]
 pub use providers::*;
 
 #[cfg(test)]
 mod tests {
+    #[allow(unused_imports)]
     use super::*;
 
     #[test]
