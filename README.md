@@ -2,8 +2,6 @@
 
 **Lossless Context Memory** — a deterministic, database-backed context management system for LLM agents, modelled after the [Voltropy LCM paper](https://papers.voltropy.com/LCM) and [Volt](https://github.com/Martian-Engineering/volt).
 
-> This is the **Rust port** (`rustic` branch). The original TypeScript implementation lives on `main`.
-
 ## Overview
 
 LLM context windows are the primary bottleneck for complex, long-horizon agentic tasks. Even models with 1M+ token windows suffer "context rot" — performance degrades well before the nominal limit is reached.
@@ -70,7 +68,6 @@ bacon-lcm/
 ```bash
 git clone https://github.com/bacon-lcm/bacon-lcm
 cd bacon-lcm
-git checkout rustic
 cargo test --workspace --lib
 ```
 
