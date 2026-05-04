@@ -54,6 +54,8 @@ shellexpand = { version = "3.1" }
 async-trait = { version = "0.1" }
 # Vector similarity / pgvector
 pgvector = { version = "0.4", features = ["sqlx"] }
+# CLI argument parsing
+clap = { version = "4", features = ["derive"] }
 
 [workspace.dependencies.tokio-test]
 version = "0.4"

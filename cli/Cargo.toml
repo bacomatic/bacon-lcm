@@ -7,3 +7,19 @@ edition.workspace = true
 [[bin]]
 name = "bacon-lcm-cli"
 path = "src/main.rs"
+
+[lib]
+name = "bacon_lcm_cli"
+path = "src/lib.rs"
+
+[dependencies]
+bacon-lcm-core   = { path = "../core" }
+bacon-lcm-daemon = { path = "../daemon" }
+clap             = { workspace = true }
+tokio            = { workspace = true }
+tracing          = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow           = { workspace = true }
+thiserror        = { workspace = true }
+serde_json       = { workspace = true }
+sqlx             = { workspace = true }
