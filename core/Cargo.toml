@@ -28,4 +28,10 @@ tiktoken-rs = { version = "0.5" }
 tokio-test = { workspace = true }
 testcontainers = { workspace = true }
 testcontainers-modules = { workspace = true }
-proptest = { workspace = true }
+proptest    = { workspace = true }
+tokio       = { workspace = true }
+criterion   = { workspace = true }
+
+[[bench]]
+name    = "compaction"
+harness = false
