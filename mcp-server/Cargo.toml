@@ -1,0 +1,31 @@
+[package]
+name    = "bacon-lcm-mcp-server"
+version.workspace = true
+license.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "bacon-lcm-mcp-server"
+path = "src/main.rs"
+
+[lib]
+name = "bacon_lcm_mcp_server"
+path = "src/lib.rs"
+
+[dependencies]
+bacon-lcm-core     = { path = "../core" }
+bacon-lcm-daemon   = { path = "../daemon" }
+sqlx               = { workspace = true }
+rmcp               = { workspace = true }
+schemars           = { workspace = true }
+tokio              = { workspace = true }
+serde              = { workspace = true }
+serde_json         = { workspace = true }
+anyhow             = { workspace = true }
+tracing            = { workspace = true }
+tracing-subscriber = { workspace = true }
+uuid               = { workspace = true }
+
+[dev-dependencies]
+tokio      = { workspace = true }
+serde_json = { workspace = true }

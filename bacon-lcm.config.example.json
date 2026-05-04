@@ -1,37 +1,48 @@
 {
-  "tokenizer": {
-    "type": "auto"
-  },
   "summarizer": {
     "provider": "openai",
     "model": "gpt-4o-mini",
     "baseUrl": "https://api.openai.com/v1",
     "maxTokens": 1024,
-    "temperature": 0.3,
-    "systemPrompt": "You are a precise summarizer for an LLM context management system. Produce concise summaries that preserve all key facts, decisions, code references, and action items. Never invent information."
-  },
-  "compaction": {
-    "thresholds": {
-      "modelMaxTokens": 128000,
-      "softLimit": 80000,
-      "hardLimit": 110000,
-      "riskBuffer": 18000
-    },
-    "leafMinFanout": 4,
-    "leafChunkTokens": 8000,
-    "condensedMinFanout": 3,
-    "condensedTargetTokens": 16000,
-    "freshTailCount": 10
+    "temperature": 0.3
   },
   "embedder": {
     "provider": "openai",
     "model": "text-embedding-3-small",
     "dimensions": 1536
   },
+  "tokenizer": {
+    "provider": "tiktoken",
+    "model": "gpt-4o"
+  },
+  "compaction": {
+    "thresholds": {
+      "modelMaxTokens": 128000,
+      "softLimit": 80000,
+      "hardLimit": 110000
+    },
+    "freshTailCount": 10,
+    "leafGroupSize": 20,
+    "condensedGroupSize": 10,
+    "parallelCompaction": true,
+    "maxConcurrentCompactions": 4
+  },
   "databaseUrl": "postgres://localhost:5432/bacon_lcm",
   "dashboard": {
-    "enabled": false,
-    "port": 3333,
-    "host": "127.0.0.1"
+    "enabled": true,
+    "port": 3333
+  },
+  "rust": {
+    "maxConcurrentRequests": 10,
+    "requestTimeoutMs": 30000,
+    "retryPolicy": {
+      "maxRetries": 3,
+      "baseDelayMs": 1000,
+      "maxDelayMs": 30000,
+      "exponentialBase": 2.0
+    },
+    "parallelCompaction": true,
+    "compactionWorkers": 4,
+    "memoryLimitMb": 512
   }
 }

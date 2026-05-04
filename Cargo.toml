@@ -1,0 +1,75 @@
+[workspace]
+members = [
+    "core",
+    "mcp-server", 
+    "daemon",
+    "cli",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+license = "MIT"
+edition = "2021"
+authors = ["bacon-lcm contributors"]
+description = "Lossless Context Memory — deterministic, database-backed context management for LLM agents"
+homepage = "https://github.com/bacon-lcm/bacon-lcm"
+repository = "https://github.com/bacon-lcm/bacon-lcm"
+
+[workspace.dependencies]
+# MCP server SDK
+rmcp     = { version = "1.6", features = ["server", "transport-io", "macros", "schemars"] }
+# JSON Schema generation for tool argument structs
+schemars = { version = "1.0", features = ["derive"] }
+# Async runtime
+tokio = { version = "1.35", features = ["full"] }
+# Database
+sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono", "json"] }
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = { version = "1.0" }
+# HTTP client
+reqwest = { version = "0.12", features = ["json"] }
+# UUID
+uuid = { version = "1.6", features = ["v4", "serde"] }
+# Time
+chrono = { version = "0.4", features = ["serde"] }
+# Error handling
+anyhow = { version = "1.0" }
+thiserror = { version = "1.0" }
+# Logging
+tracing = { version = "0.1" }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+# Configuration
+config = { version = "0.13" }
+# Async utilities
+futures = { version = "0.3" }
+# HTTP framework
+axum = { version = "0.7", features = ["json"] }
+# Metrics
+prometheus = { version = "0.13" }
+# Shell path expansion
+shellexpand = { version = "3.1" }
+# Async trait support
+async-trait = { version = "0.1" }
+# Vector similarity / pgvector
+pgvector = { version = "0.4", features = ["sqlx"] }
+# CLI argument parsing
+clap = { version = "4", features = ["derive"] }
+
+[workspace.dependencies.tokio-test]
+version = "0.4"
+
+[workspace.dependencies.testcontainers]
+version = "0.27"
+
+[workspace.dependencies.testcontainers-modules]
+version = "0.15"
+features = ["postgres"]
+
+[workspace.dependencies.proptest]
+version = "1.4"
+
+[workspace.dependencies.criterion]
+version = "0.5"
+features = ["html_reports"]

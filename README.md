@@ -2,6 +2,8 @@
 
 **Lossless Context Memory** — a deterministic, database-backed context management system for LLM agents, modelled after the [Voltropy LCM paper](https://papers.voltropy.com/LCM) and [Volt](https://github.com/Martian-Engineering/volt).
 
+> This is the **Rust port** (`rustic` branch). The original TypeScript implementation lives on `main`.
+
 ## Overview
 
 LLM context windows are the primary bottleneck for complex, long-horizon agentic tasks. Even models with 1M+ token windows suffer "context rot" — performance degrades well before the nominal limit is reached.
@@ -36,11 +38,11 @@ The result: **infinite sessions** with zero information loss and no compaction d
 
 ### Three-Level Escalation Protocol
 
-| Level | Name        | Trigger                  | Mechanism                                      |
-|-------|-------------|--------------------------|------------------------------------------------|
-| 1     | Leaf        | Soft threshold exceeded  | Groups of raw messages → leaf summary nodes     |
-| 2     | Condensed   | Still over after Level 1 | Groups of leaf nodes → condensed summary nodes  |
-| 3     | Emergency   | Hard threshold exceeded  | Deterministic archival — no LLM call required   |
+| Level | Name      | Trigger                  | Mechanism                                      |
+|-------|-----------|--------------------------|------------------------------------------------|
+| 1     | Leaf      | Soft threshold exceeded  | Groups of raw messages → leaf summary nodes    |
+| 2     | Condensed | Still over after Level 1 | Groups of leaf nodes → condensed summary nodes |
+| 3     | Emergency | Hard threshold exceeded  | Deterministic archival — no LLM call required  |
 
 ### Key Concepts
 
@@ -49,281 +51,169 @@ The result: **infinite sessions** with zero information loss and no compaction d
 - **`lcm_describe`** — inspect a summary node's metadata (level, archived status, reachable message count)
 - **`lcm_expand`** — follow lineage pointers to retrieve the original verbatim messages
 
+## Workspace Layout
+
+```
+bacon-lcm/
+  core/           Core library: session, compaction, storage traits, providers
+  daemon/         HTTP service: /health, /metrics (Prometheus), /status + Postgres storage
+  mcp-server/     MCP server exposing LCM as six tools (stdio transport)
+  cli/            Developer CLI: dev, test, bench, migrate subcommands
+  docker/         Dockerfile + docker-compose for the full stack
+  docs/           Design specs and implementation plans
+```
+
 ## Quick Start
 
+### Cargo (library)
+
 ```bash
-npm install
-npm run build
-npm test
+git clone https://github.com/bacon-lcm/bacon-lcm
+cd bacon-lcm
+git checkout rustic
+cargo test --workspace --lib
 ```
 
-## Usage
+### Docker (full stack)
 
-```typescript
-import {
-  LcmSession,
-  NaiveTokenCounter,
-  EchoSummarizer,
-  DEFAULT_COMPACTION_CONFIG,
-} from "bacon-lcm";
+```bash
+cd docker
+docker compose up
+```
 
-const session = new LcmSession(
-  new NaiveTokenCounter(),
-  new EchoSummarizer(),         // replace with your LLM-backed summarizer
-  DEFAULT_COMPACTION_CONFIG,
-);
+Services started:
+- **postgres** — pgvector/pgvector:pg16, port 5432
+- **daemon** — HTTP server on port 3333 (`/health`, `/metrics`, `/status`)
+- **mcp-server** — stdio MCP server connected to Postgres
 
-// Add messages — compaction runs automatically when thresholds are exceeded
-await session.addMessage("user", "Explain quantum computing");
-await session.addMessage("assistant", "Quantum computing uses qubits...");
+### CLI
 
-// Get the active context window (summaries + fresh tail)
-const context = session.getContext();
+```bash
+cargo run -p bacon-lcm-cli -- --help
+```
 
-// Inspect a summary
-const summaries = context.filter(item => item.kind === "summary");
-if (summaries.length > 0) {
-  const desc = session.describe(summaries[0].summary.id);
-  const original = session.expand(summaries[0].summary.id);
+```
+Commands:
+  dev      Start a local development session
+  test     Run test suites
+  bench    Run performance benchmarks
+  migrate  Migrate data between databases
+```
+
+## Usage (Rust library)
+
+```rust
+use bacon_lcm_core::{
+    LcmConfig,
+    providers::{create_token_counter, create_summarizer, create_embedder},
+    storage::StorageLayer,
+    session::LcmSession,
+    types::MessageRole,
+};
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let token_counter = create_token_counter("naive", None)?;
+    let summarizer    = create_summarizer("echo", "echo".to_string(), None, None, None, None)?;
+    let embedder      = create_embedder("null", None, None, None, None)?;
+
+    let mut session = LcmSession::new(
+        token_counter,
+        summarizer,
+        embedder,
+        LcmConfig::defaults(),
+        StorageLayer::memory(),
+    )
+    .await?;
+
+    // Add messages — compaction runs automatically when thresholds are exceeded
+    session.add_message(MessageRole::User,      "Explain quantum computing".into()).await?;
+    session.add_message(MessageRole::Assistant, "Quantum computing uses qubits...".into()).await?;
+
+    // Active context window (summaries + fresh tail)
+    let context = session.get_context().await?;
+
+    // Session statistics
+    let info = session.get_session_info().await?;
+    println!("messages: {}, tokens: {}", info.message_count, info.token_count);
+
+    // Inspect a summary node
+    // let desc = session.describe(summary_id).await?;
+
+    // Expand back to original messages
+    // let messages = session.expand(summary_id).await?;
+
+    Ok(())
 }
 ```
 
-## Pluggable Interfaces
+## Pluggable Providers
 
-| Interface      | Purpose                          | Default                    |
-|----------------|----------------------------------|----------------------------|
-| `TokenCounter` | Estimate token count for a text  | Auto-selected by provider  |
-| `Summarizer`   | LLM call to produce summaries    | `EchoSummarizer` (testing) |
-| `Embedder`     | Generate embedding vectors       | `NullEmbedder` (disabled)  |
-| `MessageStore` | Persistence for raw messages     | `InMemoryMessageStore`     |
-| `SummaryDag`   | Persistence for the summary DAG  | `InMemorySummaryDag`       |
+| Interface      | Purpose                         | Implementations                                         |
+|----------------|---------------------------------|---------------------------------------------------------|
+| `TokenCounter` | Estimate token count for text   | `NaiveTokenCounter`, `TiktokenCounter`, `AnthropicTokenCounter` |
+| `Summarizer`   | LLM call to produce summaries   | `EchoSummarizer`, `OpenAISummarizer`, `AnthropicSummarizer`     |
+| `Embedder`     | Generate embedding vectors      | `NullEmbedder`, `OpenAIEmbedder`, `LocalEmbedder`               |
+| `MessageStore` | Persistence for raw messages    | `InMemoryMessageStore`, Postgres (via daemon crate)             |
+| `SummaryDag`   | Persistence for the summary DAG | `InMemorySummaryDag`, Postgres (via daemon crate)               |
 
-Token counters are auto-selected based on the summarizer provider:
-- **OpenAI** → `TiktokenCounter` (accurate BPE via `js-tiktoken`, model-aware)
-- **Anthropic** → `AnthropicTokenCounter` (calibrated heuristic, ~3.4 chars/token)
-- **Echo/other** → `NaiveTokenCounter` (~4 chars/token)
+Providers are selected at runtime via factory functions:
 
-Override with the `tokenizer` config section or `LCM_TOKENIZER` env var.
+```rust
+// Summarizer providers: "echo" | "openai" | "anthropic"
+let summarizer = create_summarizer("openai", "gpt-4o-mini".into(), None, Some(api_key), None, None)?;
 
-### Embedders (Semantic Search)
+// Token counter: "naive" | "tiktoken" | "anthropic"
+let counter = create_token_counter("tiktoken", Some("gpt-4o"))?;
 
-When an embedder is configured with `DATABASE_URL` + pgvector, messages are auto-embedded on `addMessage()` and searchable via `session.search()`:
-
-- **OpenAI** → `OpenAIEmbedder` (text-embedding-3-small/large, works with Azure, Ollama, vLLM)
-- **Local** → `LocalEmbedder` (Xenova/all-MiniLM-L6-v2 via `@huggingface/transformers`, no API key)
-- **None** → `NullEmbedder` (semantic search disabled)
-
-The API key and base URL are inherited from the summarizer config when not set.
-
-## Configuration
-
-bacon-lcm uses a layered config system: **defaults ← config file ← env vars**.
-
-### Config file
-
-Create `bacon-lcm.config.json` in your project root or `~/.config/bacon-lcm/config.json`:
-
-```json
-{
-  "summarizer": {
-    "provider": "openai",
-    "model": "gpt-4o-mini",
-    "baseUrl": "https://api.openai.com/v1",
-    "maxTokens": 1024,
-    "temperature": 0.3
-  },
-  "compaction": {
-    "thresholds": { "modelMaxTokens": 128000, "softLimit": 80000, "hardLimit": 110000 },
-    "freshTailCount": 10
-  },
-  "databaseUrl": "postgres://localhost:5432/bacon_lcm",
-  "dashboard": { "enabled": true, "port": 3333 }
-}
-```
-
-Or set `LCM_CONFIG=/path/to/config.json` to use a custom location.
-
-See `bacon-lcm.config.example.json` for a complete template.
-
-### Environment variable overrides
-
-| Variable | Description |
-|----------|-------------|
-| `LCM_SUMMARIZER_PROVIDER` | `openai`, `anthropic`, or `echo` |
-| `LCM_SUMMARIZER_MODEL` | Model name (e.g. `gpt-4o-mini`, `claude-sonnet-4-20250514`) |
-| `LCM_SUMMARIZER_BASE_URL` | OpenAI-compatible endpoint URL |
-| `LCM_API_KEY` | API key (highest priority) |
-| `OPENAI_API_KEY` | OpenAI API key (fallback) |
-| `ANTHROPIC_API_KEY` | Anthropic API key (fallback) |
-| `DATABASE_URL` | PostgreSQL connection string |
-| `DASHBOARD` | Set to `1` to enable dashboard |
-| `DASHBOARD_PORT` | Dashboard port (default 3333) |
-| `LCM_MODEL_MAX_TOKENS` | Override model max tokens |
-| `LCM_SOFT_LIMIT` | Override soft compaction limit |
-| `LCM_HARD_LIMIT` | Override hard compaction limit |
-| `LCM_FRESH_TAIL_COUNT` | Override fresh tail message count |
-| `LCM_TOKENIZER` | `auto`, `tiktoken`, `anthropic`, or `naive` |
-| `LCM_TOKENIZER_MODEL` | Model for tiktoken encoding (e.g. `gpt-4o`) |
-| `LCM_EMBEDDER_PROVIDER` | `openai`, `local`, or `none` |
-| `LCM_EMBEDDER_MODEL` | Embedding model (e.g. `text-embedding-3-small`) |
-| `LCM_EMBEDDER_BASE_URL` | Embedding endpoint URL |
-| `LCM_EMBEDDER_DIMENSIONS` | Override embedding vector dimensions |
-
-### Summarizer providers
-
-**OpenAI-compatible** — works with OpenAI, Azure OpenAI, Ollama, LM Studio, vLLM:
-
-```json
-{ "provider": "openai", "model": "gpt-4o-mini", "baseUrl": "https://api.openai.com/v1" }
-```
-
-For local models via Ollama: `{ "provider": "openai", "baseUrl": "http://localhost:11434/v1", "model": "llama3" }`
-
-**Anthropic**:
-
-```json
-{ "provider": "anthropic", "model": "claude-sonnet-4-20250514" }
-```
-
-**Echo** (default, for testing): returns input concatenated with a header — no LLM call.
-
-### Programmatic config
-
-```typescript
-import { loadConfig, createSummarizer } from "bacon-lcm";
-
-const config = loadConfig();
-const summarizer = createSummarizer(config.summarizer);
-const session = new LcmSession(tokenCounter, summarizer, config.compaction);
+// Embedder: "null" | "openai" | "local"
+let embedder = create_embedder("openai", Some("text-embedding-3-small"), None, Some(api_key), None)?;
 ```
 
 ## PostgreSQL Persistence
 
-For durable, cross-session memory, swap the in-memory stores for Postgres-backed ones:
+Run the daemon (which owns the Postgres schema) or apply migrations directly:
 
 ```bash
-# 1. Create the database and run the migration
-createdb bacon_lcm
-psql bacon_lcm < sql/001_init.sql
+# Via the daemon (auto-migrates on startup)
+DATABASE_URL=postgres://localhost:5432/bacon_lcm cargo run -p bacon-lcm-daemon
+
+# Via Docker Compose (recommended)
+cd docker && docker compose up
 ```
 
-```typescript
-import pg from "pg";
-import {
-  LcmSession,
-  NaiveTokenCounter,
-  EchoSummarizer,
-  PgMessageStore,
-  PgSummaryDag,
-  PgSessionStore,
-  DEFAULT_COMPACTION_CONFIG,
-} from "bacon-lcm";
+Use Postgres storage in code:
 
-const pool = new pg.Pool({ connectionString: "postgres://localhost:5432/bacon_lcm" });
-const tokenCounter = new NaiveTokenCounter();
+```rust
+use bacon_lcm_daemon::storage::postgres_layer;
 
-const store = new PgMessageStore(pool, tokenCounter);
-const dag = new PgSummaryDag(pool, tokenCounter);
-const sessionStore = new PgSessionStore(pool);
+let pool = sqlx::PgPool::connect(&database_url).await?;
+let storage = postgres_layer(pool);
 
-// Auto-migrate (safe to call repeatedly)
-await store.migrate();
-await dag.migrate();
-await sessionStore.migrate();
-
-// Create a new session (auto-persisted on every addMessage)
-const session = new LcmSession(
-  tokenCounter,
-  new EchoSummarizer(),
-  DEFAULT_COMPACTION_CONFIG,
-  { store, dag, sessionStore },
-);
-
-await session.addMessage("user", "This will be persisted to Postgres");
-
-// Later — resume a session after a restart
-const resumed = await LcmSession.restore(
-  session.session.id,
-  tokenCounter,
-  new EchoSummarizer(),
-  DEFAULT_COMPACTION_CONFIG,
-  { store, dag, sessionStore },
-);
+let session = LcmSession::new(token_counter, summarizer, embedder, config, storage).await?;
 ```
 
-All `MessageStore` and `SummaryDag` interface methods are natively async (`Promise`-returning). The in-memory and Postgres implementations share the same interface, so switching between them requires no code changes beyond the constructor.
+Migrations are in `daemon/migrations/`:
+- `0001_init.sql` — sessions, messages, summary nodes tables
+- `0002_embeddings.sql` — pgvector embeddings table + indexes
 
-### MCP Server with Postgres
+## MCP Server
 
-Set `DATABASE_URL` when starting the MCP server for persistent cross-session memory:
+The MCP server exposes LCM as six tools over stdio. Any MCP-compatible agent can connect to it.
 
-```json
-{
-  "mcpServers": {
-    "bacon-lcm": {
-      "command": "node",
-      "args": ["/path/to/bacon-lcm/dist/mcp-server.js"],
-      "env": { "DATABASE_URL": "postgres://localhost:5432/bacon_lcm" }
-    }
-  }
-}
-```
-
-Without `DATABASE_URL`, the MCP server falls back to in-memory storage.
-
-## Dashboard
-
-An optional local dashboard shows real-time LCM stats in your browser.
-
-### With the MCP server
-
-Enable the dashboard by setting `DASHBOARD=1` or `DASHBOARD_PORT`:
-
-```json
-{
-  "mcpServers": {
-    "bacon-lcm": {
-      "command": "node",
-      "args": ["/path/to/bacon-lcm/dist/mcp-server.js"],
-      "env": {
-        "DATABASE_URL": "postgres://localhost:5432/bacon_lcm",
-        "DASHBOARD": "1"
-      }
-    }
-  }
-}
-```
-
-Then open **http://127.0.0.1:3333** in your browser.
-
-### Standalone
+### Run directly
 
 ```bash
-bacon-lcm-dashboard                     # default port 3333
-DASHBOARD_PORT=4000 bacon-lcm-dashboard  # custom port
+# In-memory (no database)
+cargo run -p bacon-lcm-mcp-server
+
+# With Postgres
+DATABASE_URL=postgres://localhost:5432/bacon_lcm \
+LCM_SUMMARIZER_PROVIDER=openai \
+LCM_SUMMARIZER_MODEL=gpt-4o-mini \
+LCM_SUMMARIZER_API_KEY=$OPENAI_API_KEY \
+cargo run -p bacon-lcm-mcp-server
 ```
-
-### Programmatic
-
-```typescript
-import { startDashboard, registry } from "bacon-lcm";
-
-// Register your session so the dashboard can observe it
-registry.register(session);
-registry.setActive(session.session.id);
-
-startDashboard({ port: 3333 });
-```
-
-The dashboard auto-refreshes every 2 seconds and shows:
-- **Session count, total messages, active tokens, summary nodes, archived count**
-- **Token usage bar** with color-coded thresholds (green/amber/red)
-- **Compaction thresholds** from the active session's config
-- **Per-session table** with detailed stats
-
-## Integration: MCP Server
-
-The MCP server exposes LCM as tools that any MCP-compatible agent can call.
 
 ### Windsurf
 
@@ -333,122 +223,196 @@ Add to `~/.codeium/windsurf/mcp_config.json`:
 {
   "mcpServers": {
     "bacon-lcm": {
-      "command": "node",
-      "args": ["/path/to/bacon-lcm/dist/mcp-server.js"]
+      "command": "cargo",
+      "args": ["run", "--manifest-path", "/path/to/bacon-lcm/Cargo.toml", "-p", "bacon-lcm-mcp-server"],
+      "env": {
+        "DATABASE_URL": "postgres://localhost:5432/bacon_lcm",
+        "LCM_SUMMARIZER_PROVIDER": "openai",
+        "LCM_SUMMARIZER_MODEL": "gpt-4o-mini",
+        "LCM_SUMMARIZER_API_KEY": "<your-key>"
+      }
     }
   }
 }
 ```
 
-### Devin
+Or use the pre-built Docker image:
 
-Add the same MCP server via Devin's MCP Marketplace or config.
-
-### Copilot CLI / Any MCP Host
-
-Any agent that speaks MCP over stdio can connect to `dist/mcp-server.js`.
+```json
+{
+  "mcpServers": {
+    "bacon-lcm": {
+      "command": "docker",
+      "args": ["compose", "-f", "/path/to/bacon-lcm/docker/docker-compose.yml", "run", "--rm", "mcp-server"],
+      "env": { "DATABASE_URL": "postgres://bacon_lcm:bacon_lcm@postgres:5432/bacon_lcm" }
+    }
+  }
+}
+```
 
 ### MCP Tools
 
-| Tool | Description |
-|------|-------------|
-| `lcm_store` | Persist a message; auto-compaction when thresholds exceeded |
-| `lcm_recall` | Retrieve active context window (summaries + fresh tail) |
-| `lcm_describe` | Inspect a summary node's lineage metadata |
-| `lcm_expand` | Expand a summary to original verbatim messages |
-| `lcm_session_new` | Create a new LCM session |
-| `lcm_session_info` | Get current session statistics |
+| Tool              | Description                                              |
+|-------------------|----------------------------------------------------------|
+| `lcm_store`       | Persist a message; auto-compaction when thresholds exceeded |
+| `lcm_recall`      | Retrieve active context window (summaries + fresh tail)  |
+| `lcm_describe`    | Inspect a summary node's lineage metadata                |
+| `lcm_expand`      | Expand a summary to original verbatim messages           |
+| `lcm_session_new` | Create a new LCM session                                 |
+| `lcm_session_info`| Get current session statistics                           |
 
-## Integration: Hooks (Passive Capture)
+### MCP Server Environment Variables
 
-Hooks silently capture every prompt and response into the LCM store, without the agent needing to call tools. Build first: `npm run build`.
+| Variable                   | Default    | Description                                    |
+|----------------------------|------------|------------------------------------------------|
+| `DATABASE_URL`             | *(none)*   | Postgres URL; falls back to in-memory if unset |
+| `LCM_SUMMARIZER_PROVIDER`  | `echo`     | `echo` / `openai` / `anthropic`                |
+| `LCM_SUMMARIZER_MODEL`     | `echo`     | Model name                                     |
+| `LCM_SUMMARIZER_API_KEY`   | *(none)*   | API key (required for openai / anthropic)      |
+| `RUST_LOG`                 | `info`     | Log filter (tracing-subscriber)                |
 
-### Windsurf Cascade Hooks
+## Daemon HTTP API
 
-Copy or symlink `.windsurf/hooks.json` (included in repo) to your project. It captures:
-- `pre_user_prompt` — every user message
-- `post_cascade_response` — every assistant response
-- `post_cascade_response_with_transcript` — full session transcripts
-
-### GitHub Copilot CLI Hooks
-
-Copy `.github/hooks/lcm.json` to your repo's `.github/hooks/` directory. It captures:
-- `sessionStart` / `sessionEnd` — session lifecycle
-- `userPromptSubmitted` — every user prompt
-- `preToolUse` / `postToolUse` — tool invocations
-
-### Hook CLI
-
-Both hook configs call the same unified CLI:
+The daemon provides an HTTP server for health checks, observability, and status.
 
 ```bash
-# Windsurf (auto-detects platform from JSON shape)
-echo '{"agent_action_name":"pre_user_prompt","tool_info":{"user_prompt":"hello"}}' | node dist/hooks/cli.js
+# Start (DATABASE_URL required)
+DATABASE_URL=postgres://localhost:5432/bacon_lcm cargo run -p bacon-lcm-daemon
 
-# Copilot CLI (requires --hook flag)
-echo '{"timestamp":123,"cwd":".","prompt":"hello"}' | node dist/hooks/cli.js --platform copilot --hook userPromptSubmitted
+# Or via Docker
+cd docker && docker compose up daemon
 ```
 
-## Project Structure
+### Daemon Environment Variables
+
+| Variable       | Default | Description                           |
+|----------------|---------|---------------------------------------|
+| `DATABASE_URL` | *(required)* | PostgreSQL connection string     |
+| `LCM_PORT`     | `3333`  | HTTP server port                      |
+| `RUST_LOG`     | `info`  | Log filter                            |
+
+### Endpoints
 
 ```
-src/
-  types.ts          Core type definitions
-  ids.ts            Type-safe ID factories
-  store.ts          Immutable message store
-  dag.ts            Summary DAG with lineage traversal
-  compaction.ts     Three-level compaction engine
-  context.ts        Active context window assembler
-  retrieval.ts      lcm_describe / lcm_expand tools
-  session.ts        Top-level session orchestrator
-  config.ts         Layered config system (file + env overrides)
-  defaults.ts       Default implementations & config presets
-  mcp-server.ts     MCP server (stdio transport)
-  index.ts          Public API barrel export
-  lcm.test.ts       Core test suite
-  config.test.ts    Config, summarizer & tokenizer test suite
-  summarizers/
-    openai.ts       OpenAI-compatible summarizer (OpenAI, Azure, Ollama, etc.)
-    anthropic.ts    Anthropic Messages API summarizer
-    index.ts        Summarizer factory + barrel export
-  tokenizers/
-    tiktoken.ts     Accurate BPE counting via js-tiktoken (OpenAI models)
-    anthropic.ts    Calibrated heuristic (~3.4 c/t) for Claude models
-    index.ts        Token counter factory + auto-selection
-  embedders/
-    openai.ts       OpenAI-compatible embeddings (text-embedding-3-small/large)
-    local.ts        Local embeddings via @huggingface/transformers
-    index.ts        Embedder factory + NullEmbedder
-  hooks/
-    handler.ts      Unified hook handler (platform-agnostic)
-    windsurf.ts     Windsurf Cascade hooks adapter
-    copilot.ts      Copilot CLI hooks adapter
-    cli.ts          CLI entry point for hook scripts
-    index.ts        Hooks barrel export
-    hooks.test.ts   Hook test suite
-  dashboard/
-    registry.ts     Shared session registry (singleton)
-    server.ts       HTTP server + REST API (zero dependencies)
-    dashboard.html  Self-contained SPA (vanilla JS + CSS)
-    index.ts        Dashboard barrel export
-  pg/
-    pg-store.ts     PostgreSQL message store
-    pg-dag.ts       PostgreSQL summary DAG
-    pg-session.ts   PostgreSQL session persistence (save/restore/list)
-    pg-vectors.ts   pgvector store for semantic search
-    index.ts        Pg barrel export
-    pg.test.ts      Postgres integration tests
-sql/
-  001_init.sql      Database migration (messages, summaries, sessions)
-  002_embeddings.sql  Embeddings table + pgvector indexes
-.windsurf/
-  hooks.json        Windsurf hooks config (ready to use)
-.github/
-  hooks/
-    lcm.json        Copilot CLI hooks config (ready to use)
-raw/
-  LCM.pdf           The original LCM paper
-  volt-gh.md        Link to Volt source
+GET /health    — DB ping; 200 OK or 503 with error
+GET /metrics   — Prometheus text format (messages_stored, compaction_runs, active_sessions, token_counts)
+GET /status    — JSON snapshot of daemon state
+```
+
+```bash
+curl http://localhost:3333/health
+curl http://localhost:3333/metrics
+curl http://localhost:3333/status
+```
+
+## CLI
+
+```bash
+# Start an in-memory dev session (prints session ID + stats)
+cargo run -p bacon-lcm-cli -- dev
+
+# With Postgres
+cargo run -p bacon-lcm-cli -- dev --database-url postgres://localhost:5432/bacon_lcm
+
+# Run unit tests
+cargo run -p bacon-lcm-cli -- test
+
+# Run property-based tests (proptest)
+cargo run -p bacon-lcm-cli -- test --property
+
+# Run integration tests (requires Docker/Postgres)
+cargo run -p bacon-lcm-cli -- test --integration
+
+# Run Criterion benchmarks
+cargo run -p bacon-lcm-cli -- bench
+cargo run -p bacon-lcm-cli -- bench --export results.txt
+
+# Migrate data between two Postgres databases
+cargo run -p bacon-lcm-cli -- migrate \
+  --from-url postgres://old-host:5432/bacon_lcm \
+  --to-url   postgres://new-host:5432/bacon_lcm \
+  --dry-run
+```
+
+## Testing
+
+```bash
+# All unit tests
+cargo test --workspace --lib
+
+# Property-based tests (proptest)
+cargo test -p bacon-lcm-core --test property_tests
+
+# MCP server smoke test
+cargo test -p bacon-lcm-mcp-server --test smoke_test
+
+# Criterion benchmarks (compile + single-iteration test run)
+cargo test --benches -p bacon-lcm-core
+
+# Full Criterion benchmark run (produces HTML report in target/criterion/)
+cargo bench -p bacon-lcm-core
+```
+
+| Suite                                | Tests |
+|--------------------------------------|-------|
+| `bacon-lcm-core` (unit)              | 81    |
+| `bacon-lcm-core` (proptest)          | 3     |
+| `bacon-lcm-daemon` (unit)            | 8     |
+| `bacon-lcm-mcp-server` (unit)        | 14    |
+| `bacon-lcm-mcp-server` (smoke test)  | 1     |
+| **Total**                            | **107** |
+
+### Property Tests
+
+Three invariants are verified with randomised inputs via proptest:
+
+1. **`session_counts_consistent`** — after adding N messages, at least one message or summary exists and token count is accessible
+2. **`context_items_ordered_by_timestamp`** — items returned by `get_context()` are in non-decreasing timestamp order
+3. **`token_count_positive_after_messages`** — adding non-empty messages always produces a positive token count
+
+### Benchmarks
+
+Three Criterion benchmarks in `core/benches/compaction.rs`:
+
+| Benchmark                        | What it measures                              |
+|----------------------------------|-----------------------------------------------|
+| `leaf_compaction_20_messages`    | Full compaction cycle with tight thresholds   |
+| `get_context_100_messages`       | Context assembly over 100 un-compacted msgs   |
+| `add_message_throughput_500`     | Raw message ingestion rate (no compaction)    |
+
+## Configuration
+
+bacon-lcm uses a layered config system in `LcmConfig`: **defaults ← programmatic override**.
+
+The default compaction thresholds:
+
+| Setting              | Default   |
+|----------------------|-----------|
+| `model_max_tokens`   | 128 000   |
+| `soft_limit`         | 80 000    |
+| `hard_limit`         | 110 000   |
+| `fresh_tail_count`   | 10        |
+| `leaf_group_size`    | 20        |
+| `condensed_group_size` | 10      |
+
+Override at construction time:
+
+```rust
+use bacon_lcm_core::types::{CompactionConfig, ThresholdConfig};
+
+let mut config = LcmConfig::defaults();
+config.compaction = CompactionConfig {
+    thresholds: ThresholdConfig {
+        model_max_tokens: 200_000,
+        soft_limit:       150_000,
+        hard_limit:       180_000,
+    },
+    fresh_tail_count: 20,
+    leaf_group_size: 30,
+    condensed_group_size: 10,
+    parallel_compaction: true,
+    max_concurrent_compactions: 4,
+};
 ```
 
 ## References
